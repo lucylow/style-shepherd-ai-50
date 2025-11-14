@@ -75,16 +75,16 @@ const Hero = () => {
             <div className="space-y-4">
               <div className="inline-flex items-center space-x-2 bg-white/20 rounded-full px-4 py-2 backdrop-blur-sm">
                 <Mic className="w-4 h-4 text-fashion-gold" />
-                <span className="text-sm font-medium">AI-Powered Fashion Assistant</span>
+                <span className="text-xs sm:text-sm font-medium">AI-Powered Fashion Assistant</span>
               </div>
 
-              <h1 className="text-5xl md:text-6xl font-bold leading-tight">
+              <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold leading-tight">
                 Your Personal
                 <span className="text-fashion-gold block">Fashion</span>
                 AI Stylist
               </h1>
 
-              <p className="text-xl text-blue-100 max-w-2xl">
+              <p className="text-lg sm:text-xl text-blue-100 max-w-2xl">
                 Stop guessing sizes and dealing with returns. Style Shepherd uses advanced AI to predict your perfect fit and reduce returns by up to 90%.
               </p>
             </div>
@@ -108,18 +108,18 @@ const Hero = () => {
               </Button>
             </div>
 
-            <div className="grid grid-cols-3 gap-8 pt-8">
+            <div className="grid grid-cols-3 gap-4 sm:gap-8 pt-8">
               <div className="text-center">
-                <div className="text-3xl font-bold">{stats.returns}%</div>
-                <div className="text-blue-200 text-sm">Returns Reduced</div>
+                <div className="text-2xl sm:text-3xl font-bold">{stats.returns}%</div>
+                <div className="text-blue-200 text-xs sm:text-sm">Returns Reduced</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl font-bold">{stats.timeSaved}%</div>
-                <div className="text-blue-200 text-sm">Time Saved</div>
+                <div className="text-2xl sm:text-3xl font-bold">{stats.timeSaved}%</div>
+                <div className="text-blue-200 text-xs sm:text-sm">Time Saved</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl font-bold">{stats.rating}</div>
-                <div className="text-blue-200 text-sm">User Rating</div>
+                <div className="text-2xl sm:text-3xl font-bold">{stats.rating}</div>
+                <div className="text-blue-200 text-xs sm:text-sm">User Rating</div>
               </div>
             </div>
           </div>
