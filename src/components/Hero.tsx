@@ -7,33 +7,27 @@ const Hero = () => {
   const [stats, setStats] = useState({ returns: 0, timeSaved: 0, rating: 0 });
 
   useEffect(() => {
-    const animateStats = () => {
-      const targets = { returns: 90, timeSaved: 50, rating: 4.9 };
-      const duration = 2000;
-      const steps = 60;
-      const increment = {
-        returns: targets.returns / steps,
-        timeSaved: targets.timeSaved / steps,
-        rating: targets.rating / steps,
-      };
+    const targets = { returns: 90, timeSaved: 50, rating: 4.9 };
+    const duration = 2000;
+    const steps = 60;
+    const stepDuration = duration / steps;
 
-      let current = 0;
-      const timer = setInterval(() => {
-        current++;
-        if (current >= steps) {
-          clearInterval(timer);
-          setStats(targets);
-        } else {
-          setStats({
-            returns: Math.floor(increment.returns * current),
-            timeSaved: Math.floor(increment.timeSaved * current),
-            rating: parseFloat((increment.rating * current).toFixed(1)),
-          });
-        }
-      }, duration / steps);
-    };
+    let currentStep = 0;
+    const timer = setInterval(() => {
+      currentStep++;
+      if (currentStep >= steps) {
+        clearInterval(timer);
+        setStats(targets);
+      } else {
+        setStats({
+          returns: Math.floor((targets.returns / steps) * currentStep),
+          timeSaved: Math.floor((targets.timeSaved / steps) * currentStep),
+          rating: parseFloat(((targets.rating / steps) * currentStep).toFixed(1)),
+        });
+      }
+    }, stepDuration);
 
-    animateStats();
+    return () => clearInterval(timer);
   }, []);
 
   const [conversation, setConversation] = useState([
