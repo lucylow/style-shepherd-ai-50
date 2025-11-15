@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
+import { Link } from "react-router-dom";
 
 const Navigation = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -9,10 +10,10 @@ const Navigation = () => {
     <nav className="fixed w-full bg-white/90 backdrop-blur-md z-50 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
-          <div className="flex items-center space-x-2 sm:space-x-3">
+          <Link to="/" className="flex items-center space-x-2 sm:space-x-3 hover:opacity-80 transition-opacity">
             <div className="w-8 h-8 bg-gradient-to-r from-primary to-fashion-gold rounded-lg"></div>
             <span className="text-lg sm:text-xl font-bold text-gray-900">Style Shepherd</span>
-          </div>
+          </Link>
 
           <div className="hidden md:flex items-center space-x-8">
             <a
@@ -43,7 +44,9 @@ const Navigation = () => {
 
           <div className="hidden md:flex items-center space-x-4">
             <Button variant="ghost">Sign In</Button>
-            <Button>Get Started Free</Button>
+            <Button asChild>
+              <Link to="/dashboard">Try Demo</Link>
+            </Button>
           </div>
 
           <button 
@@ -90,7 +93,9 @@ const Navigation = () => {
               <Button variant="ghost" className="w-full justify-start">
                 Sign In
               </Button>
-              <Button className="w-full">Get Started Free</Button>
+              <Button className="w-full" asChild>
+                <Link to="/dashboard">Try Demo</Link>
+              </Button>
             </div>
           </div>
         )}

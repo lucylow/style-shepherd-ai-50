@@ -93,18 +93,24 @@ const Hero = () => {
               <Button
                 size="lg"
                 className="bg-fashion-gold text-gray-900 hover:bg-fashion-gold/90 font-bold shadow-2xl"
+                asChild
               >
-                <Mic className="mr-2 h-5 w-5" />
-                Try Voice Assistant
+                <a href="/dashboard">
+                  <Mic className="mr-2 h-5 w-5" />
+                  Try Voice Assistant
+                </a>
               </Button>
 
               <Button
                 size="lg"
                 variant="outline"
                 className="border-2 border-white text-gray-900 bg-white hover:bg-gray-100"
+                asChild
               >
-                <PlayCircle className="mr-2 h-5 w-5" />
-                Watch Demo
+                <a href="/dashboard">
+                  <PlayCircle className="mr-2 h-5 w-5" />
+                  Watch Demo
+                </a>
               </Button>
             </div>
 

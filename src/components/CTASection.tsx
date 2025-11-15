@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { Link } from "react-router-dom";
 
 const CTASection = () => {
   return (
@@ -15,8 +16,9 @@ const CTASection = () => {
           <Button
             size="lg"
             className="bg-white text-gray-900 hover:bg-gray-100 font-bold shadow-2xl w-full sm:w-auto"
+            asChild
           >
-            Start Free Trial
+            <Link to="/dashboard">Try Free Demo</Link>
           </Button>
 
           <Button
