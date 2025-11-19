@@ -1,11 +1,14 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Mic, MicOff, Bot } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from './ui/button';
 import { useToast } from './ui/use-toast';
+import { VoiceResponse } from '@/types/fashion';
+import { mockVoiceService } from '@/services/mockVoice';
 
 interface VoiceInterfaceProps {
-  onVoiceCommand?: (command: string) => void;
+  onVoiceCommand?: (response: VoiceResponse) => void;
+  userId: string;
 }
 
 interface Message {
@@ -13,40 +16,80 @@ interface Message {
   content: string;
 }
 
-export const VoiceInterface = ({ onVoiceCommand }: VoiceInterfaceProps) => {
+export const VoiceInterface = ({ onVoiceCommand, userId }: VoiceInterfaceProps) => {
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const { toast } = useToast();
+  const audioChunksRef = useRef<Blob[]>([]);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
-  const startListening = () => {
-    setIsListening(true);
-    toast({
-      title: "Listening...",
-      description: "Speak your fashion request",
-    });
+  const startListening = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
 
-    // Mock: In real implementation, this would use Web Speech API or MediaRecorder
-    setTimeout(() => {
-      stopListening();
-    }, 3000);
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        await processAudio(audioBlob);
+      };
+
+      mediaRecorder.start();
+      setIsListening(true);
+      toast({
+        title: "Listening...",
+        description: "Speak your fashion request",
+      });
+    } catch (error) {
+      console.error('Error accessing microphone:', error);
+      toast({
+        title: "Microphone Error",
+        description: "Unable to access microphone. Please check permissions.",
+        variant: "destructive"
+      });
+    }
   };
 
   const stopListening = () => {
-    setIsListening(false);
-    setIsProcessing(true);
+    if (mediaRecorderRef.current && isListening) {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      setIsListening(false);
+      setIsProcessing(true);
+    }
+  };
 
-    // Mock voice processing
-    setTimeout(() => {
-      const mockCommand = "Show me casual summer dresses under $200";
+  const processAudio = async (audioBlob: Blob) => {
+    try {
+      const response = await mockVoiceService.processVoiceCommand(
+        userId,
+        audioBlob,
+        { messages }
+      );
+
       setMessages(prev => [
         ...prev,
-        { type: 'user', content: mockCommand },
-        { type: 'assistant', content: "I found some great casual summer dresses for you! Check out the recommendations below." }
+        { type: 'user', content: 'Voice input' },
+        { type: 'assistant', content: response.text }
       ]);
+      
+      onVoiceCommand?.(response);
+    } catch (error) {
+      console.error('Error processing voice:', error);
+      toast({
+        title: "Processing Error",
+        description: "Failed to process voice command",
+        variant: "destructive"
+      });
+    } finally {
       setIsProcessing(false);
-      onVoiceCommand?.(mockCommand);
-    }, 1500);
+    }
   };
 
   return (
