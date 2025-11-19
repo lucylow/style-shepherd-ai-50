@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Search, Filter, Grid3X3, ShoppingBag, Sparkles, Home } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -7,39 +7,115 @@ import { VoiceInterface } from '@/components/VoiceInterface';
 import { ShoppingCart } from '@/components/ShoppingCart';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { CartItem, mockProducts } from '@/types/fashion';
+import { CartItem, Product, VoiceResponse } from '@/types/fashion';
+import { mockAuth } from '@/services/mockAuth';
+import { mockProductService } from '@/services/mockProducts';
+import { mockCartService } from '@/services/mockCart';
 
 const Dashboard = () => {
-  const [products] = useState(mockProducts);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [recommendations, setRecommendations] = useState<Product[]>([]);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
 
-  const handleAddToCart = (product: typeof mockProducts[0]) => {
-    setCartItems(prev => {
-      const existingItem = prev.find(item => item.product.id === product.id);
-      if (existingItem) {
-        return prev.map(item =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
-        );
-      }
-      return [...prev, { 
-        product, 
-        quantity: 1, 
-        size: product.recommendedSize || product.sizes[0] 
-      }];
-    });
+  const currentUser = mockAuth.getCurrentUser();
+  const userId = currentUser?.id || 'guest';
+
+  useEffect(() => {
+    loadInitialData();
+  }, []);
+
+  useEffect(() => {
+    searchProducts();
+  }, [searchQuery]);
+
+  const loadInitialData = async () => {
+    setIsLoading(true);
+    try {
+      const [productsData, recsData, cartData] = await Promise.all([
+        mockProductService.searchProducts({}),
+        userId !== 'guest' ? mockProductService.getRecommendations(userId) : Promise.resolve([]),
+        userId !== 'guest' ? mockCartService.getCart(userId) : Promise.resolve([])
+      ]);
+      setProducts(productsData);
+      setRecommendations(recsData);
+      setCartItems(cartData);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const filteredProducts = products.filter(product =>
-    product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.category.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const searchProducts = async () => {
+    try {
+      const results = await mockProductService.searchProducts({ query: searchQuery });
+      setProducts(results);
+    } catch (error) {
+      console.error('Error searching products:', error);
+    }
+  };
 
-  const recommendedProducts = products.filter(p => p.confidence && p.confidence > 0.85);
+  const handleVoiceCommand = async (response: VoiceResponse) => {
+    if (response.products && response.products.length > 0) {
+      setProducts(response.products);
+    }
+  };
+
+  const handleAddToCart = async (product: Product) => {
+    if (userId === 'guest') {
+      // For guest users, just update state locally
+      setCartItems(prev => {
+        const existingItem = prev.find(item => item.product.id === product.id);
+        if (existingItem) {
+          return prev.map(item =>
+            item.product.id === product.id
+              ? { ...item, quantity: item.quantity + 1 }
+              : item
+          );
+        }
+        return [...prev, { 
+          product, 
+          quantity: 1, 
+          size: product.recommendedSize || product.sizes[0] 
+        }];
+      });
+    } else {
+      // For logged-in users, use the mock service
+      const updatedCart = await mockCartService.addToCart(userId, {
+        product,
+        quantity: 1,
+        size: product.recommendedSize || product.sizes[0]
+      });
+      setCartItems(updatedCart);
+    }
+  };
+
+  const handleUpdateQuantity = async (productId: string, quantity: number) => {
+    if (userId === 'guest') {
+      if (quantity === 0) {
+        setCartItems(prev => prev.filter(item => item.product.id !== productId));
+      } else {
+        setCartItems(prev => prev.map(item =>
+          item.product.id === productId ? { ...item, quantity } : item
+        ));
+      }
+    } else {
+      const updatedCart = await mockCartService.updateQuantity(userId, productId, quantity);
+      setCartItems(updatedCart);
+    }
+  };
+
+  const handleRemoveItem = async (productId: string) => {
+    if (userId === 'guest') {
+      setCartItems(prev => prev.filter(item => item.product.id !== productId));
+    } else {
+      const updatedCart = await mockCartService.removeFromCart(userId, productId);
+      setCartItems(updatedCart);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -137,7 +213,7 @@ const Dashboard = () => {
         </motion.div>
 
         {/* Recommendations Section */}
-        {recommendedProducts.length > 0 && (
+        {recommendations.length > 0 && (
           <motion.section
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -151,7 +227,7 @@ const Dashboard = () => {
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {recommendedProducts.slice(0, 4).map((product, index) => (
+              {recommendations.slice(0, 4).map((product, index) => (
                 <motion.div
                   key={product.id}
                   initial={{ opacity: 0, y: 20 }}
@@ -187,26 +263,41 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <motion.div
-            layout
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
-          >
-            {filteredProducts.map((product, index) => (
-              <motion.div
-                key={product.id}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: index * 0.05 }}
-              >
-                <ProductCard
-                  product={product}
-                  onAddToCart={handleAddToCart}
-                />
-              </motion.div>
-            ))}
-          </motion.div>
+          {isLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[...Array(8)].map((_, i) => (
+                <div key={i} className="bg-card rounded-xl shadow-sm border border-border animate-pulse">
+                  <div className="aspect-[3/4] bg-muted rounded-t-xl" />
+                  <div className="p-4 space-y-2">
+                    <div className="h-4 bg-muted rounded" />
+                    <div className="h-3 bg-muted rounded w-3/4" />
+                    <div className="h-4 bg-muted rounded w-1/2" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <motion.div
+              layout
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
+            >
+              {products.map((product, index) => (
+                <motion.div
+                  key={product.id}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: index * 0.05 }}
+                >
+                  <ProductCard
+                    product={product}
+                    onAddToCart={handleAddToCart}
+                  />
+                </motion.div>
+              ))}
+            </motion.div>
+          )}
 
-          {filteredProducts.length === 0 && (
+          {!isLoading && products.length === 0 && (
             <div className="text-center py-12">
               <p className="text-muted-foreground">No products found. Try a different search.</p>
             </div>
@@ -216,10 +307,8 @@ const Dashboard = () => {
 
       {/* Voice Interface */}
       <VoiceInterface
-        onVoiceCommand={(command) => {
-          console.log('Voice command:', command);
-          // Backend integration will happen here
-        }}
+        userId={userId}
+        onVoiceCommand={handleVoiceCommand}
       />
 
       {/* Shopping Cart */}
