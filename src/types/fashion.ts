@@ -11,12 +11,43 @@ export interface Product {
   returnRisk?: number;
   confidence?: number;
   description?: string;
+  color?: string;
+  rating?: number;
+  reviews?: Array<{ rating: number; comment: string; }>;
+}
+
+export interface UserProfile {
+  userId: string;
+  preferences?: {
+    favoriteColors?: string[];
+    preferredBrands?: string[];
+    preferredStyles?: string[];
+    preferredSizes?: string[];
+  };
+  bodyMeasurements?: {
+    height?: number;
+    weight?: number;
+    chest?: number;
+    waist?: number;
+    hips?: number;
+  };
+  orderHistory?: Array<{
+    id: string;
+    date: string;
+    items: CartItem[];
+  }>;
+  returnHistory?: Array<{
+    productId: string;
+    reason: string;
+    date: string;
+  }>;
 }
 
 export interface CartItem {
   product: Product;
   quantity: number;
   size: string;
+  selectedSize?: string;
 }
 
 export interface VoiceResponse {

@@ -53,8 +53,6 @@ class MockProductService {
           products = products.filter(p => p.brand === filters.brand);
         }
 
-        // Gender filter not implemented in mock data
-
         resolve(products);
       }, 400);
     });
@@ -70,27 +68,59 @@ class MockProductService {
     });
   }
 
-  getRecommendations(userId: string): Promise<Product[]> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const products = this.getProducts();
-        // Simple mock: return random products with high confidence
-        const recommendations = products
-          .sort(() => Math.random() - 0.5)
-          .slice(0, 4)
-          .map(p => ({
-            ...p,
-            confidence: 0.75 + Math.random() * 0.2, // 0.75-0.95
-            returnRisk: Math.random() * 0.3, // 0-0.3
-          }));
-        resolve(recommendations);
-      }, 600);
-    });
+  async getRecommendations(userId: string): Promise<Product[]> {
+    // AI-powered personalized recommendations
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    const { personalizationEngine } = await import('./personalizationEngine');
+    const { mockAuth } = await import('./mockAuth');
+    
+    const currentUser = mockAuth.getCurrentUser();
+    const allProducts = this.getProducts();
+    
+    if (!currentUser) {
+      return allProducts.slice(0, 8);
+    }
+    
+    const userProfile = mockAuth.getUserProfile(currentUser.id);
+    
+    if (!userProfile) {
+      return allProducts.slice(0, 8);
+    }
+    
+    // Transform mockAuth UserProfile to our local UserProfile
+    const aiUserProfile = {
+      userId: userProfile.userId,
+      preferences: {
+        favoriteColors: userProfile.stylePreferences?.favoriteColors || [],
+        preferredBrands: userProfile.stylePreferences?.preferredBrands || [],
+        preferredStyles: userProfile.stylePreferences?.styleType ? [userProfile.stylePreferences.styleType] : [],
+        preferredSizes: [] as string[]
+      },
+      bodyMeasurements: {
+        height: userProfile.measurements?.height,
+        weight: userProfile.measurements?.weight,
+      },
+      orderHistory: [] as Array<{id: string; date?: string; items: any[]}>,
+      returnHistory: userProfile.returnHistory || []
+    };
+    
+    const recommendations = personalizationEngine.generatePersonalizedRecommendations(
+      allProducts,
+      aiUserProfile,
+      { session_type: 'browsing' }
+    );
+    
+    return recommendations.slice(0, 12);
   }
 
   private getProducts(): Product[] {
     const productsStr = localStorage.getItem(this.PRODUCTS_KEY);
     return productsStr ? JSON.parse(productsStr) : initialProducts;
+  }
+
+  getAllProducts(): Product[] {
+    return this.getProducts();
   }
 }
 

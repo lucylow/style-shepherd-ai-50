@@ -1,5 +1,7 @@
 import { VoiceResponse } from '@/types/fashion';
 import { mockProductService } from './mockProducts';
+import { fashionAIEngine } from './fashionAIEngine';
+import { mockAuth } from './mockAuth';
 
 class MockVoiceService {
   async processVoiceCommand(
@@ -10,18 +12,31 @@ class MockVoiceService {
     // Simulate processing delay
     await new Promise(resolve => setTimeout(resolve, 1500));
 
-    // Mock transcription
+    // Mock transcription with realistic examples
     const mockTranscriptions = [
-      "Show me some blue dresses",
-      "I'm looking for running shoes",
-      "What jackets do you have?",
+      "Show me some blue dresses for a summer wedding",
+      "I'm looking for running shoes that won't hurt my feet",
+      "What jackets do you have in my size?",
       "Find me casual shirts under $50",
-      "I need a formal outfit for a wedding",
+      "I need a formal outfit for a wedding next month",
+      "Do you have anything in red that would match my style?",
+      "What's trending right now in women's fashion?",
     ];
     
     const transcription = mockTranscriptions[Math.floor(Math.random() * mockTranscriptions.length)];
     
-    // Parse intent from transcription
+    // Get user profile for personalized AI response
+    const currentUser = mockAuth.getCurrentUser();
+    const userProfile = currentUser ? mockAuth.getUserProfile(currentUser.id) : null;
+    
+    // Use Fashion AI Engine for intelligent processing
+    const aiResponse = await fashionAIEngine.processVoiceQuery(
+      transcription,
+      userProfile,
+      context
+    );
+    
+    // Parse intent for product search
     const intent = this.parseIntent(transcription);
     
     // Get relevant products
@@ -31,9 +46,9 @@ class MockVoiceService {
     });
 
     return {
-      text: this.generateResponse(intent, products.length),
+      text: aiResponse.text,
       products: products.slice(0, 4),
-      confidence: 0.8 + Math.random() * 0.15,
+      confidence: aiResponse.confidence,
     };
   }
 
