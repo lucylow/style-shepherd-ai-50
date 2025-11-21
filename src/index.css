@@ -43,6 +43,8 @@ All colors MUST be HSL.
     --fashion-sage: 92 30% 49%;
     --fashion-blush: 342 87% 85%;
     --fashion-charcoal: 200 18% 26%;
+    --fashion-cream: 28 67% 97%;
+    --fashion-navy: 228 45% 15%;
     
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
@@ -96,10 +98,69 @@ All colors MUST be HSL.
 
 @layer base {
   * {
-    @apply border-border;
+    @apply border-border transition-colors duration-200;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    @apply antialiased;
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display font-bold;
+  }
+
+  p {
+    @apply leading-relaxed;
+  }
+
+  button {
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary;
+  }
+
+  a {
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary rounded;
+  }
+
+  input, select, textarea {
+    @apply focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary;
+  }
+
+  ::selection {
+    @apply bg-primary text-primary-foreground;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply backdrop-blur-lg bg-background/80;
+  }
+
+  .container-padding {
+    @apply px-4 sm:px-6 lg:px-8;
+  }
+
+  .max-container {
+    @apply max-w-7xl mx-auto;
+  }
+
+  .hover-scale {
+    @apply transition-transform duration-200 hover:scale-105;
+  }
+
+  .error-container {
+    @apply bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-lg;
+  }
+
+  .sr-only {
+    @apply absolute w-px h-px p-0 -m-px overflow-hidden border-0 whitespace-nowrap;
+  }
+
+  .skip-to-content {
+    @apply sr-only focus:not-sr-only focus:absolute focus:top-0 focus:left-0 focus:z-50 focus:p-4 focus:bg-primary focus:text-primary-foreground;
   }
 }
