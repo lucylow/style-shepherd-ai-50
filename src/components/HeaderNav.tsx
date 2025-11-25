@@ -31,6 +31,7 @@ export default function HeaderNav() {
     { href: '/products', label: 'Products' },
     { href: '/voice-shop', label: 'Voice Shop' },
     { href: '/dashboard', label: 'Dashboard' },
+    { href: '/sponsor-metrics', label: 'Sponsor Metrics' },
   ];
 
   return (

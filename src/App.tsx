@@ -30,6 +30,7 @@ import JudgingCriteriaAssessment from "./pages/JudgingCriteriaAssessment";
 import JudgeDemoPage from "./pages/JudgeDemo";
 import PilotKPIsPage from "./pages/PilotKPIs";
 import UnitEconomicsPage from "./pages/UnitEconomics";
+import SponsorMetricsPage from "./pages/SponsorMetrics";
 import PageTransition from "./components/PageTransition";
 import RouteLoadingIndicator from "./components/RouteLoadingIndicator";
 
@@ -89,6 +90,7 @@ const AppRoutes = () => {
         <Route path="/demo" element={<PageTransition keyProp={location.pathname}><JudgeDemoPage /></PageTransition>} />
         <Route path="/pilot-kpis" element={<PageTransition keyProp={location.pathname}><PilotKPIsPage /></PageTransition>} />
         <Route path="/unit-economics" element={<PageTransition keyProp={location.pathname}><UnitEconomicsPage /></PageTransition>} />
+        <Route path="/sponsor-metrics" element={<PageTransition keyProp={location.pathname}><SponsorMetricsPage /></PageTransition>} />
         {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
         <Route path="*" element={<PageTransition keyProp={location.pathname}><NotFound /></PageTransition>} />
       </Routes>

@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: style-shepherd-api
+  labels:
+    app: style-shepherd-api
+    version: v1
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: style-shepherd-api
+  template:
+    metadata:
+      labels:
+        app: style-shepherd-api
+    spec:
+      containers:
+      - name: api
+        image: style-shepherd/api:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT
+          value: "3000"
+        - name: RAINDROP_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: style-shepherd-secrets
+              key: raindrop-api-key
+        - name: ELEVENLABS_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: style-shepherd-secrets
+              key: elevenlabs-api-key
+        - name: VULTR_POSTGRES_URL
+          valueFrom:
+            secretKeyRef:
+              name: style-shepherd-secrets
+              key: vultr-postgres-url
+        - name: VULTR_VALKEY_URL
+          valueFrom:
+            secretKeyRef:
+              name: style-shepherd-secrets
+              key: vultr-valkey-url
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: style-shepherd-api-service
+spec:
+  selector:
+    app: style-shepherd-api
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 3000
+  type: LoadBalancer
+

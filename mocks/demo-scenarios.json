@@ -1,0 +1,77 @@
+{
+  "scenarios": [
+    {
+      "id": "scenario_001",
+      "title": "Beach Wedding Outfit Selection",
+      "user": "Sarah Chen (user_001)",
+      "steps": [
+        {
+          "step": 1,
+          "action": "voice_query",
+          "user": "I need an outfit for a beach wedding in Mexico next month",
+          "system": "Analyzes occasion, location, season, user preferences"
+        },
+        {
+          "step": 2,
+          "action": "product_recommendation",
+          "system": "Shows 3 maxi dresses with return risk scores",
+          "products": [
+            {"id": "prod_123", "risk": "15%"},
+            {"id": "prod_126", "risk": "22%"},
+            {"id": "prod_127", "risk": "8%"}
+          ]
+        },
+        {
+          "step": 3,
+          "action": "size_recommendation",
+          "user": "What's my size in Reformation?",
+          "system": "Recommends size 4 with 88% confidence based on measurements and history"
+        },
+        {
+          "step": 4,
+          "action": "purchase_with_confidence",
+          "system": "Completes purchase with 15% predicted return risk",
+          "outcome": "User keeps item - prediction accurate"
+        }
+      ]
+    },
+    {
+      "id": "scenario_002",
+      "title": "High-Risk Purchase Intervention",
+      "user": "Sarah Chen (user_001)",
+      "steps": [
+        {
+          "step": 1,
+          "action": "browsing",
+          "user": "Views wide-leg trousers (prod_125)",
+          "system": "Calculates 65% return risk automatically"
+        },
+        {
+          "step": 2,
+          "action": "risk_alert",
+          "system": "Shows high-risk warning with specific factors",
+          "factors": [
+            "Fit uncertainty",
+            "Style experimentation",
+            "Fabric concern"
+          ]
+        },
+        {
+          "step": 3,
+          "action": "alternative_suggestion",
+          "system": "Recommends similar styles with lower risk (15-25%)",
+          "alternatives": [
+            {"id": "prod_128", "risk": "18%"},
+            {"id": "prod_129", "risk": "22%"}
+          ]
+        },
+        {
+          "step": 4,
+          "action": "user_education",
+          "system": "Explains why wide-leg may not work with her height and preferences"
+        }
+      ]
+    }
+  ]
+}
+

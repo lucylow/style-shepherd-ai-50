@@ -1,0 +1,71 @@
+{
+  "dashboard": {
+    "title": "Style Shepherd Analytics Dashboard",
+    "panels": [
+      {
+        "title": "API Request Rate",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])",
+            "legendFormat": "{{method}} {{route}}"
+          }
+        ]
+      },
+      {
+        "title": "AI Prediction Latency",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, ai_prediction_latency_seconds_bucket)",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, ai_prediction_latency_seconds_bucket)",
+            "legendFormat": "p99"
+          }
+        ]
+      },
+      {
+        "title": "Return Rate Reduction",
+        "targets": [
+          {
+            "expr": "return_rate_reduction",
+            "legendFormat": "Reduction %"
+          }
+        ]
+      },
+      {
+        "title": "CO₂ Saved",
+        "targets": [
+          {
+            "expr": "sum(co2_saved_kg)",
+            "legendFormat": "Total CO₂ Saved (kg)"
+          }
+        ]
+      },
+      {
+        "title": "Cache Hit Rate",
+        "targets": [
+          {
+            "expr": "rate(cache_hits_total[5m]) / rate(cache_requests_total[5m])",
+            "legendFormat": "Hit Rate"
+          }
+        ]
+      },
+      {
+        "title": "Error Rate",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\"}[5m])",
+            "legendFormat": "5xx Errors"
+          }
+        ]
+      }
+    ],
+    "refresh": "10s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    }
+  }
+}
+

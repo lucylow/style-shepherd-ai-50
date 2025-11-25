@@ -15,6 +15,8 @@ import { NotFoundError } from '../lib/errors.js';
 import { validateBody, validateParams, validateQuery, commonSchemas } from '../middleware/validation.js';
 import { z } from 'zod';
 import agentRoutes from './agents.js';
+import { retailOrchestrator } from '../services/RetailOrchestrator.js';
+import { analyticsService } from '../services/AnalyticsService.js';
 
 const router = Router();
 
@@ -1060,6 +1062,120 @@ router.get(
 
 // Agent management routes
 router.use(agentRoutes);
+
+// Agentic Retail Experience - Multi-Agent Orchestration
+router.post(
+  '/agentic-cart',
+  validateBody(
+    z.object({
+      userId: z.string().min(1, 'User ID is required'),
+      intent: z.string().min(1, 'Intent is required'),
+      params: z.object({
+        query: z.string().optional(),
+        preferences: z.object({
+          colors: z.array(z.string()).optional(),
+          brands: z.array(z.string()).optional(),
+          styles: z.array(z.string()).optional(),
+          sizes: z.array(z.string()).optional(),
+          maxPrice: z.number().positive().optional(),
+          minPrice: z.number().positive().optional(),
+        }).optional(),
+        budget: z.number().positive().optional(),
+        maxItems: z.number().int().positive().max(20).optional(),
+      }),
+    })
+  ),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { userId, intent, params } = req.body;
+      
+      const result = await retailOrchestrator.handleUserGoal(userId, {
+        intent,
+        params,
+      });
+
+      // Record analytics
+      await analyticsService.recordSessionAnalytics(
+        userId,
+        result.sessionId,
+        result.analytics
+      );
+
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.get(
+  '/agentic-cart/analytics',
+  validateQuery(
+    z.object({
+      userId: z.string().optional(),
+      timeRange: z.string().optional(), // JSON string of {start, end}
+    })
+  ),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { userId, timeRange } = req.query;
+
+      if (userId) {
+        const userMetrics = await analyticsService.getUserMetrics(userId as string);
+        res.json({ userMetrics });
+      } else {
+        let timeRangeObj: { start: Date; end: Date } | undefined;
+        if (timeRange) {
+          try {
+            timeRangeObj = JSON.parse(timeRange as string);
+            timeRangeObj.start = new Date(timeRangeObj.start);
+            timeRangeObj.end = new Date(timeRangeObj.end);
+          } catch (error) {
+            // Invalid time range, use all time
+          }
+        }
+
+        const businessMetrics = await analyticsService.getBusinessMetrics(timeRangeObj);
+        res.json({ businessMetrics });
+      }
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.get(
+  '/agentic-cart/impact',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const impact = await analyticsService.getImpactSummary();
+      res.json({ impact });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.get(
+  '/agentic-cart/history/:userId',
+  validateParams(z.object({ userId: commonSchemas.userId })),
+  validateQuery(
+    z.object({
+      limit: z.string().optional().transform((val) => (val ? parseInt(val, 10) : 10)),
+    })
+  ),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { userId } = req.params;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      
+      const history = await retailOrchestrator.getUserShoppingHistory(userId, limit);
+      res.json({ history });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 export default router;
 

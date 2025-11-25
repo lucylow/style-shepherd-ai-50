@@ -304,7 +304,17 @@ export class VoiceAssistant {
     conversationId: string,
     audioStream: Buffer | ArrayBuffer,
     userId?: string
-  ): Promise<{ text: string; audio?: Buffer; intent?: any; entities?: any; preferencesSaved?: boolean }> {
+  ): Promise<{ 
+    text: string; 
+    audio?: Buffer; 
+    audioUrl?: string;
+    intent?: string; 
+    entities?: Record<string, any>; 
+    emotion?: string;
+    preferencesSaved?: boolean;
+    requiresFollowUp?: boolean;
+    suggestedActions?: string[];
+  }> {
     // Validate inputs
     if (!conversationId || typeof conversationId !== 'string') {
       throw new ValidationError('Invalid conversationId: must be a non-empty string', {
@@ -388,7 +398,17 @@ export class VoiceAssistant {
     conversationId: string,
     audioStream: Buffer | ArrayBuffer,
     userId?: string
-  ): Promise<{ text: string; audio?: Buffer; intent?: any; entities?: any; preferencesSaved?: boolean }> {
+  ): Promise<{ 
+    text: string; 
+    audio?: Buffer; 
+    audioUrl?: string;
+    intent?: string; 
+    entities?: Record<string, any>; 
+    emotion?: string;
+    preferencesSaved?: boolean;
+    requiresFollowUp?: boolean;
+    suggestedActions?: string[];
+  }> {
     let lastError: AppError | null = null;
     
     // Retry logic for processing
@@ -673,7 +693,9 @@ export class VoiceAssistant {
         );
 
       // Process with TTS service (fallback chain: local TTS → ElevenLabs)
+      // Store audio in SmartBuckets in parallel for future reference
       let responseAudio: Buffer | undefined;
+      let audioUrl: string | null = null;
 
       try {
           const ttsResult = await this.generateSpeechWithRetry(
@@ -683,6 +705,18 @@ export class VoiceAssistant {
           );
           responseAudio = ttsResult;
           console.log(`✅ TTS generated successfully (attempt ${attempt + 1})`);
+          
+          // Store audio in SmartBuckets asynchronously (non-blocking)
+          if (userId && conversationId) {
+            this.storeAudioInBuckets(ttsResult, conversationId, userId).then(url => {
+              if (url) {
+                audioUrl = url;
+                console.log(`✅ Audio URL stored: ${url}`);
+              }
+            }).catch(err => {
+              console.warn('Non-critical: Failed to store audio in buckets:', err);
+            });
+          }
       } catch (ttsError) {
           const appError = toAppError(ttsError);
           console.warn(`TTS attempt ${attempt + 1} failed:`, {
@@ -837,9 +871,13 @@ export class VoiceAssistant {
       return {
         text: responseText,
         audio: responseAudio,
+        audioUrl: audioUrl || undefined,
         intent: intentAnalysis.intent,
         entities: intentAnalysis.entities,
+        emotion: intentAnalysis.emotion,
         preferencesSaved,
+        requiresFollowUp: intentAnalysis.requiresFollowUp,
+        suggestedActions: intentAnalysis.suggestedActions,
       };
       } catch (error) {
         // Convert error to AppError for consistent handling
@@ -2023,6 +2061,291 @@ export class VoiceAssistant {
       voiceSettings: state.voiceSettings ? this.validateVoiceSettings(state.voiceSettings) : undefined,
       preferences: state.preferences ? this.validateAndNormalizePreferences(state.preferences) as UserVoicePreferences : undefined,
     };
+  }
+
+  /**
+   * Determine emotion from intent and sentiment for voice personality
+   */
+  private determineEmotionFromIntent(intent: string, sentiment?: string): 'empathetic' | 'energetic' | 'reassuring' | 'playful' | 'professional' {
+    if (sentiment === 'negative') {
+      return 'empathetic';
+    }
+    
+    switch (intent) {
+      case 'return_product':
+      case 'ask_about_size':
+        return 'empathetic';
+      case 'get_recommendations':
+      case 'search_product':
+        return 'energetic';
+      case 'get_style_advice':
+        return 'reassuring';
+      case 'save_preference':
+      case 'add_to_cart':
+        return 'playful';
+      case 'track_order':
+      case 'check_availability':
+        return 'professional';
+      default:
+        return 'professional';
+    }
+  }
+
+  /**
+   * Check if intent requires a follow-up question
+   */
+  private requiresFollowUp(intent: string): boolean {
+    const followUpIntents = [
+      'search_product',
+      'get_recommendations',
+      'ask_about_size',
+      'get_style_advice',
+    ];
+    return followUpIntents.includes(intent);
+  }
+
+  /**
+   * Get suggested actions based on intent
+   */
+  private getSuggestedActions(intent: string, entities: Record<string, any>): string[] {
+    const actions: string[] = [];
+    
+    switch (intent) {
+      case 'search_product':
+        if (!entities.category) actions.push('ask_category');
+        if (!entities.color) actions.push('ask_color');
+        break;
+      case 'ask_about_size':
+        actions.push('provide_size_guidance');
+        actions.push('check_return_policy');
+        break;
+      case 'get_recommendations':
+        actions.push('show_recommendations');
+        actions.push('explain_reasoning');
+        break;
+    }
+    
+    return actions;
+  }
+
+  /**
+   * Get emotion-aware voice settings based on intent analysis
+   */
+  private getEmotionAwareVoiceSettings(
+    intentAnalysis: IntentAnalysis,
+    baseSettings: Partial<VoiceSettings>
+  ): VoiceSettings {
+    const emotion = intentAnalysis.emotion || 'professional';
+    const sentiment = intentAnalysis.sentiment || 'neutral';
+    
+    // Map emotion to voice parameters
+    const emotionSettings: Record<string, Partial<VoiceSettings>> = {
+      empathetic: {
+        stability: 0.6,
+        similarityBoost: 0.75,
+        style: 0.3,
+        emotion: 'empathetic',
+        context: 'support',
+      },
+      energetic: {
+        stability: 0.5,
+        similarityBoost: 0.85,
+        style: 0.7,
+        emotion: 'energetic',
+        context: 'shopping',
+      },
+      reassuring: {
+        stability: 0.65,
+        similarityBoost: 0.8,
+        style: 0.5,
+        emotion: 'reassuring',
+        context: 'advice',
+      },
+      playful: {
+        stability: 0.55,
+        similarityBoost: 0.9,
+        style: 0.6,
+        emotion: 'playful',
+        context: 'shopping',
+      },
+      professional: {
+        stability: 0.7,
+        similarityBoost: 0.75,
+        style: 0.4,
+        emotion: 'professional',
+        context: 'confirmation',
+      },
+    };
+    
+    const emotionConfig = emotionSettings[emotion] || emotionSettings.professional;
+    
+    // Adjust for negative sentiment
+    if (sentiment === 'negative') {
+      emotionConfig.stability = (emotionConfig.stability || 0.5) + 0.1;
+      emotionConfig.style = (emotionConfig.style || 0.5) - 0.2;
+    }
+    
+    return this.validateVoiceSettings({
+      ...baseSettings,
+      ...emotionConfig,
+    } as VoiceSettings);
+  }
+
+  /**
+   * Handle order queries using SmartSQL
+   */
+  private async handleOrderQuery(intentAnalysis: IntentAnalysis, userId?: string): Promise<any> {
+    if (!userId || !orderSQL) {
+      return null;
+    }
+    
+    try {
+      const orderId = intentAnalysis.entities.orderId || intentAnalysis.entities.order_id;
+      
+      if (orderId) {
+        // Query specific order
+        const order = await orderSQL.query(
+          'SELECT * FROM orders WHERE id = $1 AND user_id = $2',
+          [orderId, userId]
+        );
+        return order?.[0] || null;
+      } else {
+        // Get recent orders
+        const orders = await orderSQL.query(
+          'SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5',
+          [userId]
+        );
+        return orders || [];
+      }
+    } catch (error) {
+      console.warn('SmartSQL order query failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Handle size queries using Vultr GPU inference
+   */
+  private async handleSizeQuery(
+    intentAnalysis: IntentAnalysis,
+    userProfile: any,
+    userId?: string
+  ): Promise<{ recommendedSize: string; confidence: number; reasoning?: string } | null> {
+    if (!userProfile || !userId) {
+      return null;
+    }
+    
+    try {
+      const productId = intentAnalysis.entities.productId || intentAnalysis.entities.product_id;
+      const brand = intentAnalysis.entities.brand;
+      
+      if (productId && userProfile.bodyMeasurements) {
+        // Use Vultr GPU for size prediction
+        const prediction = await productRecommendationAPI.predictOptimalSize(
+          userProfile.bodyMeasurements,
+          productId
+        );
+        
+        return {
+          recommendedSize: prediction.recommendedSize,
+          confidence: prediction.confidence,
+          reasoning: brand 
+            ? `Based on your measurements and ${brand}'s sizing, I recommend size ${prediction.recommendedSize}.`
+            : `Based on your measurements, I recommend size ${prediction.recommendedSize}.`,
+        };
+      }
+      
+      return null;
+    } catch (error) {
+      console.warn('Vultr GPU size prediction failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Enhance response with order data from SmartSQL
+   */
+  private enhanceResponseWithOrderData(baseResponse: string, orderData: any): string {
+    if (!orderData) return baseResponse;
+    
+    if (Array.isArray(orderData) && orderData.length > 0) {
+      const latestOrder = orderData[0];
+      return `${baseResponse} Your most recent order (${latestOrder.id}) is ${latestOrder.status}. ${latestOrder.items?.length || 0} item(s) totaling $${latestOrder.total || 0}.`;
+    } else if (orderData.id) {
+      return `${baseResponse} Order ${orderData.id} is currently ${orderData.status}. Expected delivery: ${orderData.estimated_delivery || 'TBD'}.`;
+    }
+    
+    return baseResponse;
+  }
+
+  /**
+   * Enhance response with size prediction data
+   */
+  private enhanceResponseWithSizeData(
+    baseResponse: string,
+    sizeData: { recommendedSize: string; confidence: number; reasoning?: string }
+  ): string {
+    if (!sizeData) return baseResponse;
+    
+    const confidencePercent = Math.round(sizeData.confidence * 100);
+    const reasoning = sizeData.reasoning || `I recommend size ${sizeData.recommendedSize} with ${confidencePercent}% confidence.`;
+    
+    return `${baseResponse} ${reasoning}`;
+  }
+
+  /**
+   * Generate natural follow-up question based on intent
+   */
+  private generateFollowUpQuestion(intentAnalysis: IntentAnalysis): string {
+    const followUps: Record<string, string[]> = {
+      search_product: [
+        ' Would you like to see similar items?',
+        ' Is there a specific color or style you prefer?',
+        ' What occasion are you shopping for?',
+      ],
+      get_recommendations: [
+        ' Would you like me to explain why I chose these?',
+        ' Should I show you more options?',
+      ],
+      ask_about_size: [
+        ' Would you like to know about our return policy?',
+        ' Should I check if this size is in stock?',
+      ],
+      get_style_advice: [
+        ' Would you like outfit suggestions?',
+        ' Should I show you coordinating pieces?',
+      ],
+    };
+    
+    const options = followUps[intentAnalysis.intent] || [' Is there anything else I can help with?'];
+    return options[Math.floor(Math.random() * options.length)];
+  }
+
+  /**
+   * Store audio in SmartBuckets for future reference
+   */
+  private async storeAudioInBuckets(audioBuffer: Buffer, conversationId: string, userId: string): Promise<string | null> {
+    if (!productBuckets) {
+      return null;
+    }
+    
+    try {
+      const audioKey = `voice-responses/${userId}/${conversationId}-${Date.now()}.mp3`;
+      const url = await productBuckets.upload(audioKey, audioBuffer, {
+        contentType: 'audio/mpeg',
+        metadata: {
+          conversationId,
+          userId,
+          timestamp: Date.now(),
+        },
+      });
+      
+      console.log(`✅ Audio stored in SmartBuckets: ${url}`);
+      return url;
+    } catch (error) {
+      console.warn('Failed to store audio in SmartBuckets:', error);
+      return null;
+    }
   }
 }
 

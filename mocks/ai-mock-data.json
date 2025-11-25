@@ -1,0 +1,444 @@
+{
+  "userProfiles": [
+    {
+      "userId": "user_00345",
+      "name": "Alice Baker",
+      "email": "alice.baker@example.com",
+      "measurements": {
+        "height_cm": 165,
+        "chest_cm": 90,
+        "waist_cm": 70,
+        "hips_cm": 95,
+        "shoe_size_us": 7
+      },
+      "stylePreferences": {
+        "colors": ["navy", "cream", "blush"],
+        "patterns": ["floral", "plaid"],
+        "occasion": ["casual", "office"],
+        "brands": ["BrandA", "BrandC"]
+      },
+      "sizeHistory": [
+        {
+          "brand": "BrandA",
+          "size": "M",
+          "fit": "perfect"
+        },
+        {
+          "brand": "BrandB",
+          "size": "S",
+          "fit": "tight"
+        }
+      ],
+      "returnHistory": [
+        {
+          "productId": "prod-3421",
+          "reason": "Too Large",
+          "date": "2024-09-15T10:25:00Z"
+        },
+        {
+          "productId": "prod-9823",
+          "reason": "Wrong Color",
+          "date": "2024-10-20T14:43:00Z"
+        }
+      ],
+      "voicePreference": "rachel"
+    },
+    {
+      "userId": "user_12378",
+      "name": "Marcus Chen",
+      "email": "marcus.chen@example.com",
+      "measurements": {
+        "height_cm": 178,
+        "chest_cm": 102,
+        "waist_cm": 82,
+        "hips_cm": 100,
+        "shoe_size_us": 10
+      },
+      "stylePreferences": {
+        "colors": ["black", "gray", "navy"],
+        "patterns": ["solid", "striped"],
+        "occasion": ["office", "formal"],
+        "brands": ["BrandB", "BrandD"]
+      },
+      "sizeHistory": [
+        {
+          "brand": "BrandB",
+          "size": "L",
+          "fit": "perfect"
+        },
+        {
+          "brand": "BrandD",
+          "size": "M",
+          "fit": "tight"
+        }
+      ],
+      "returnHistory": [
+        {
+          "productId": "prod-2234",
+          "reason": "Too Small",
+          "date": "2024-08-10T09:15:00Z"
+        }
+      ],
+      "voicePreference": "george"
+    }
+  ],
+  "products": [
+    {
+      "productId": "prod-3421",
+      "name": "Floral Midi Dress",
+      "brand": "BrandA",
+      "price_usd": 89.99,
+      "category": "Dresses",
+      "attributes": {
+        "colors": ["navy", "red"],
+        "patterns": ["floral"],
+        "sizes": ["XS", "S", "M", "L"],
+        "material": "cotton"
+      },
+      "images": [
+        "https://cdn.example.com/prod-3421/front.jpg",
+        "https://cdn.example.com/prod-3421/back.jpg"
+      ],
+      "avgReturnRate": 0.22,
+      "reviews": {
+        "count": 142,
+        "averageRating": 4.3
+      },
+      "sizeChart": {
+        "XS": {
+          "chest_cm": 82,
+          "waist_cm": 62,
+          "hips_cm": 88
+        },
+        "S": {
+          "chest_cm": 86,
+          "waist_cm": 66,
+          "hips_cm": 92
+        },
+        "M": {
+          "chest_cm": 90,
+          "waist_cm": 70,
+          "hips_cm": 96
+        },
+        "L": {
+          "chest_cm": 94,
+          "waist_cm": 74,
+          "hips_cm": 100
+        }
+      }
+    },
+    {
+      "productId": "prod-3423",
+      "name": "Classic Navy Blazer",
+      "brand": "BrandC",
+      "price_usd": 149.99,
+      "category": "Blazers",
+      "attributes": {
+        "colors": ["navy"],
+        "patterns": ["solid"],
+        "sizes": ["S", "M", "L", "XL"],
+        "material": "wool"
+      },
+      "images": [
+        "https://cdn.example.com/prod-3423/front.jpg"
+      ],
+      "avgReturnRate": 0.15,
+      "reviews": {
+        "count": 89,
+        "averageRating": 4.5
+      },
+      "sizeChart": {
+        "S": {
+          "chest_cm": 94,
+          "waist_cm": 78,
+          "hips_cm": 96
+        },
+        "M": {
+          "chest_cm": 98,
+          "waist_cm": 82,
+          "hips_cm": 100
+        },
+        "L": {
+          "chest_cm": 102,
+          "waist_cm": 86,
+          "hips_cm": 104
+        },
+        "XL": {
+          "chest_cm": 106,
+          "waist_cm": 90,
+          "hips_cm": 108
+        }
+      }
+    },
+    {
+      "productId": "prod-4512",
+      "name": "Slim Fit Chinos",
+      "brand": "BrandB",
+      "price_usd": 120.00,
+      "category": "Pants",
+      "attributes": {
+        "colors": ["khaki", "navy", "black"],
+        "patterns": ["solid"],
+        "sizes": ["30", "32", "34", "36"],
+        "material": "cotton"
+      },
+      "images": [
+        "https://cdn.example.com/prod-4512/front.jpg"
+      ],
+      "avgReturnRate": 0.28,
+      "reviews": {
+        "count": 203,
+        "averageRating": 4.1
+      },
+      "sizeChart": {
+        "30": {
+          "waist_cm": 76,
+          "inseam_cm": 81,
+          "hips_cm": 94
+        },
+        "32": {
+          "waist_cm": 82,
+          "inseam_cm": 81,
+          "hips_cm": 98
+        },
+        "34": {
+          "waist_cm": 88,
+          "inseam_cm": 81,
+          "hips_cm": 102
+        },
+        "36": {
+          "waist_cm": 94,
+          "inseam_cm": 81,
+          "hips_cm": 106
+        }
+      }
+    },
+    {
+      "productId": "prod-9823",
+      "name": "Casual Striped Shirt",
+      "brand": "BrandA",
+      "price_usd": 65.99,
+      "category": "Shirts",
+      "attributes": {
+        "colors": ["blue", "white", "red"],
+        "patterns": ["striped"],
+        "sizes": ["XS", "S", "M", "L", "XL"],
+        "material": "cotton"
+      },
+      "images": [
+        "https://cdn.example.com/prod-9823/front.jpg"
+      ],
+      "avgReturnRate": 0.18,
+      "reviews": {
+        "count": 167,
+        "averageRating": 4.4
+      },
+      "sizeChart": {
+        "XS": {
+          "chest_cm": 88,
+          "waist_cm": 72,
+          "hips_cm": 90
+        },
+        "S": {
+          "chest_cm": 92,
+          "waist_cm": 76,
+          "hips_cm": 94
+        },
+        "M": {
+          "chest_cm": 96,
+          "waist_cm": 80,
+          "hips_cm": 98
+        },
+        "L": {
+          "chest_cm": 100,
+          "waist_cm": 84,
+          "hips_cm": 102
+        },
+        "XL": {
+          "chest_cm": 104,
+          "waist_cm": 88,
+          "hips_cm": 106
+        }
+      }
+    }
+  ],
+  "conversations": [
+    {
+      "userId": "user_00345",
+      "sessionId": "sess_001_2025_11_01",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I'm looking for a navy floral dress for office wear.",
+          "timestamp": "2025-11-01T12:00:00Z"
+        },
+        {
+          "role": "agent",
+          "text": "I found several navy floral dresses that match your style. Would you like me to suggest the best size based on your profile?",
+          "timestamp": "2025-11-01T12:00:02Z"
+        },
+        {
+          "role": "user",
+          "text": "Yes, please recommend the size.",
+          "timestamp": "2025-11-01T12:00:05Z"
+        },
+        {
+          "role": "agent",
+          "text": "For BrandA's floral midi dress, I recommend size M with 85% confidence. Do you want to add it to your cart?",
+          "timestamp": "2025-11-01T12:00:06Z"
+        }
+      ]
+    },
+    {
+      "userId": "user_12378",
+      "sessionId": "sess_002_2025_11_05",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Show me professional blazers in navy.",
+          "timestamp": "2025-11-05T10:15:00Z"
+        },
+        {
+          "role": "agent",
+          "text": "I found a classic navy blazer from BrandC. Based on your measurements, I recommend size L with 88% confidence. The return risk is low at 15%.",
+          "timestamp": "2025-11-05T10:15:03Z"
+        },
+        {
+          "role": "user",
+          "text": "What's the return risk based on?",
+          "timestamp": "2025-11-05T10:15:10Z"
+        },
+        {
+          "role": "agent",
+          "text": "The 15% risk is based on: excellent size match with your measurements, low historical return rate for this product, and your positive fit history with similar items.",
+          "timestamp": "2025-11-05T10:15:12Z"
+        }
+      ]
+    }
+  ],
+  "recommendations": [
+    {
+      "userId": "user_00345",
+      "timestamp": "2025-11-01T12:00:06Z",
+      "recommendations": [
+        {
+          "productId": "prod-3421",
+          "recommendedSize": "M",
+          "confidenceScore": 0.85,
+          "returnRisk": 0.18,
+          "reasoning": "Based on your measurement history and past returns, size M matches your waist and chest size best."
+        },
+        {
+          "productId": "prod-3423",
+          "recommendedSize": "S",
+          "confidenceScore": 0.68,
+          "returnRisk": 0.21,
+          "reasoning": "Style compatibility is high for office wear but waist measurements suggest a smaller size."
+        }
+      ]
+    },
+    {
+      "userId": "user_12378",
+      "timestamp": "2025-11-05T10:15:03Z",
+      "recommendations": [
+        {
+          "productId": "prod-3423",
+          "recommendedSize": "L",
+          "confidenceScore": 0.88,
+          "returnRisk": 0.15,
+          "reasoning": "Excellent size match with your chest measurements. Low return rate for this product model and strong style alignment."
+        }
+      ]
+    }
+  ],
+  "orders": [
+    {
+      "orderId": "order_79045",
+      "userId": "user_00345",
+      "items": [
+        {
+          "productId": "prod-3421",
+          "size": "M",
+          "price": 89.99,
+          "quantity": 1,
+          "returnRiskScore": 0.18
+        },
+        {
+          "productId": "prod-4512",
+          "size": "L",
+          "price": 120.00,
+          "quantity": 1,
+          "returnRiskScore": 0.25
+        }
+      ],
+      "totalAmount": 209.99,
+      "status": "Pending",
+      "placedAt": "2025-11-10T15:25:00Z"
+    },
+    {
+      "orderId": "order_79046",
+      "userId": "user_12378",
+      "items": [
+        {
+          "productId": "prod-3423",
+          "size": "L",
+          "price": 149.99,
+          "quantity": 1,
+          "returnRiskScore": 0.15
+        }
+      ],
+      "totalAmount": 149.99,
+      "status": "Shipped",
+      "placedAt": "2025-11-05T10:20:00Z",
+      "shippedAt": "2025-11-06T14:30:00Z"
+    }
+  ],
+  "returnRiskAnalyses": [
+    {
+      "orderId": "order_79045",
+      "returnRiskAnalysis": {
+        "overallRiskScore": 0.21,
+        "highRiskItems": [
+          {
+            "productId": "prod-4512",
+            "size": "L",
+            "riskFactors": [
+              "User past returns indicate size-related fit issues",
+              "High average return rate for this product model"
+            ],
+            "mitigationAdvice": "Consider trying size XL or consult the detailed size chart."
+          }
+        ],
+        "lowRiskItems": [
+          {
+            "productId": "prod-3421",
+            "size": "M",
+            "riskFactors": [
+              "Good size match based on measurements",
+              "Style preferences align well"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "orderId": "order_79046",
+      "returnRiskAnalysis": {
+        "overallRiskScore": 0.15,
+        "highRiskItems": [],
+        "lowRiskItems": [
+          {
+            "productId": "prod-3423",
+            "size": "L",
+            "riskFactors": [
+              "Excellent size match",
+              "Low historical return rate",
+              "Strong style alignment"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
+
