@@ -1,6 +1,6 @@
 /**
  * ElevenLabs Voice Assistant Service
- * Enhanced with preference memory, streaming support, and better error handling
+ * Enhanced with LLM-powered intent extraction, response generation, and Whisper STT
  * Handles voice conversation and speech processing
  */
 
@@ -9,6 +9,8 @@ import env from '../config/env.js';
 import { userMemory } from '../lib/raindrop-config.js';
 import { vultrValkey } from '../lib/vultr-valkey.js';
 import { ttsService } from './TTSService.js';
+import { llmService } from './LLMService.js';
+import { sttService } from './STTService.js';
 
 export interface ConversationState {
   conversationId: string;
@@ -40,7 +42,7 @@ export interface UserVoicePreferences {
 export interface STTResult {
   text: string;
   confidence?: number;
-  source: 'elevenlabs' | 'openai' | 'google' | 'fallback';
+  source: 'openai' | 'elevenlabs' | 'fallback';
 }
 
 export class VoiceAssistant {
@@ -147,12 +149,14 @@ export class VoiceAssistant {
     // Retry logic for processing
     for (let attempt = 0; attempt < this.MAX_RETRIES; attempt++) {
     try {
-      // Convert audio to text (speech-to-text)
-        const sttResult = await this.speechToText(audioStream, userId);
+      // Convert audio to text (speech-to-text) using enhanced STT service
+        const sttResult = await sttService.transcribe(audioStream, {
+          prompt: userId ? await this.getContextPrompt(userId) : undefined,
+        });
         const textQuery = sttResult.text;
 
       // Skip if transcription failed
-      if (!textQuery || textQuery === '[Audio transcription needed]') {
+      if (!textQuery || textQuery === '[Audio transcription needed - please configure STT service]') {
         throw new Error('Failed to transcribe audio input');
       }
 
@@ -167,8 +171,12 @@ export class VoiceAssistant {
         ]);
       }
 
-        // Enhanced intent and entity extraction with preference detection
-      const intentAnalysis = await this.extractIntentAndEntities(textQuery, userId);
+        // Enhanced intent and entity extraction using LLM (with fallback)
+      const intentAnalysis = await llmService.extractIntentAndEntities(
+        textQuery,
+        conversationHistory,
+        userProfile
+      );
         
         // Check if user wants to save preferences
         const preferencesToSave = this.detectPreferencesFromQuery(textQuery, intentAnalysis);
@@ -178,15 +186,14 @@ export class VoiceAssistant {
         ? await this.getConversationHistory(userId, 10)
         : [];
 
-        // Generate intelligent response based on intent and preferences
-      let responseText = await this.generateContextualResponse(
+        // Generate intelligent response using LLM (with fallback)
+      let responseText = await llmService.generateResponse(
         textQuery,
         intentAnalysis,
         conversationHistory,
         userProfile,
-          state?.context || {},
-          state?.preferences
-        );
+        state?.preferences
+      );
 
         // Save user preferences if detected
         let preferencesSaved = false;
@@ -349,21 +356,24 @@ export class VoiceAssistant {
         ]);
       }
 
-      // Extract intent and entities
-      const intentAnalysis = await this.extractIntentAndEntities(query, userId);
-      
       // Get conversation history
       const conversationHistory = userId 
         ? await this.getConversationHistory(userId, 10)
         : [];
 
-      // Generate contextual response
-      const responseText = await this.generateContextualResponse(
+      // Extract intent and entities using LLM
+      const intentAnalysis = await llmService.extractIntentAndEntities(
+        query,
+        conversationHistory,
+        userProfile
+      );
+
+      // Generate contextual response using LLM
+      const responseText = await llmService.generateResponse(
         query,
         intentAnalysis,
         conversationHistory,
         userProfile,
-        state?.context || {},
         state?.preferences
       );
 

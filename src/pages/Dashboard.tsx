@@ -420,21 +420,43 @@ const Dashboard = () => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent rounded-2xl p-8 mb-8 border border-primary/20"
+          className="bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-8 mb-8 border border-primary/20 relative overflow-hidden"
         >
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div>
-              <h2 className="text-3xl font-bold text-foreground mb-2">
-                Your AI-Powered Fashion Assistant
-              </h2>
-              <p className="text-muted-foreground">
-                Discover personalized style recommendations with voice commands
-              </p>
-            </div>
-            <div className="flex flex-col items-end space-y-2">
-              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                <span>Voice Assistant Active</span>
+          {/* Decorative background elements */}
+          <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-primary/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
+          
+          <div className="relative flex items-center justify-between flex-wrap gap-6">
+            <div className="flex items-start gap-4 flex-1">
+              <motion.div
+                initial={{ scale: 0, rotate: -180 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: "spring", stiffness: 200, damping: 15 }}
+                className="w-16 h-16 bg-gradient-to-br from-primary to-primary/70 rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0"
+              >
+                <Sparkles className="w-8 h-8 text-white" />
+              </motion.div>
+              <div>
+                <h2 className="text-3xl font-bold text-foreground mb-2 flex items-center gap-2">
+                  Your AI-Powered Fashion Assistant
+                </h2>
+                <p className="text-muted-foreground mb-3">
+                  Discover personalized style recommendations with voice commands and intelligent suggestions
+                </p>
+                <div className="flex flex-wrap gap-3 mt-4">
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded-lg">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                    <span className="text-sm font-medium text-foreground">Voice Active</span>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded-lg">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    <span className="text-sm text-muted-foreground">AI Recommendations</span>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded-lg">
+                    <Bot className="w-4 h-4 text-primary" />
+                    <span className="text-sm text-muted-foreground">Smart Sizing</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
