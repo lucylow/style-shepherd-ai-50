@@ -21,7 +21,7 @@ const PLANS: SubscriptionPlan[] = [
   {
     id: 'style-concierge-monthly',
     name: 'Style Concierge',
-    priceId: process.env.VITE_STRIPE_PRICE_ID_MONTHLY || 'price_monthly', // Set in Stripe dashboard
+    priceId: import.meta.env.VITE_STRIPE_PRICE_ID_MONTHLY || 'price_monthly', // Set in Stripe dashboard
     price: 19.99,
     interval: 'month',
     features: [
@@ -36,7 +36,7 @@ const PLANS: SubscriptionPlan[] = [
   {
     id: 'style-concierge-yearly',
     name: 'Style Concierge (Yearly)',
-    priceId: process.env.VITE_STRIPE_PRICE_ID_YEARLY || 'price_yearly',
+    priceId: import.meta.env.VITE_STRIPE_PRICE_ID_YEARLY || 'price_yearly',
     price: 199.99,
     interval: 'year',
     features: [
