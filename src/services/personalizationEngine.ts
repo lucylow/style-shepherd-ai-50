@@ -1,29 +1,10 @@
 import { Product, CartItem } from '@/types/fashion';
 import { fashionAIEngine } from './fashionAIEngine';
 import { returnsPredictor } from './returnsPredictor';
+import { userMemoryService, UserProfile } from './raindrop/userMemoryService';
+import { styleInferenceService } from './raindrop/styleInferenceService';
 
-interface UserProfile {
-  userId: string;
-  preferences?: {
-    favoriteColors?: string[];
-    preferredBrands?: string[];
-    preferredStyles?: string[];
-    preferredSizes?: string[];
-  };
-  bodyMeasurements?: {
-    height?: number;
-    weight?: number;
-  };
-  orderHistory?: Array<{
-    id: string;
-    date?: string;
-    items: CartItem[];
-  }>;
-  returnHistory?: Array<{
-    productId: string;
-    reason?: string;
-  }>;
-}
+// UserProfile is now imported from raindrop/userMemoryService
 
 interface PersonalizedRecommendation extends Product {
   engagement_score: number;
@@ -45,26 +26,67 @@ interface RecommendationContext {
 class PersonalizationEngine {
   private readonly explorationRate = 0.15; // 15% exploration vs 85% exploitation
 
-  generatePersonalizedRecommendations(
+  async generatePersonalizedRecommendations(
     products: Product[],
     userProfile: UserProfile | null,
     context: RecommendationContext = {}
-  ): PersonalizedRecommendation[] {
+  ): Promise<PersonalizedRecommendation[]> {
     if (!userProfile) {
       return this.getDefaultRecommendations(products);
     }
 
-    const styleEmbedding = fashionAIEngine.computeStyleEmbedding(userProfile);
+    // Use SmartInference for AI-powered recommendations
+    try {
+      const inferenceResults = await styleInferenceService.batchPredictRecommendations(
+        userProfile.userId,
+        products,
+        userProfile
+      );
+
+      const recommendations = await Promise.all(products.map(async (product, index) => {
+        const inference = inferenceResults[index];
+        const returnRisk = await returnsPredictor.predictReturnRisk(product, userProfile);
+        
+        const breakdown = {
+          style_match: inference.factors.styleMatch,
+          price_fit: inference.factors.priceFit,
+          return_risk: 1 - returnRisk.risk_score,
+          novelty: inference.factors.novelty,
+        };
+
+        return {
+          ...product,
+          engagement_score: inference.score,
+          engagement_breakdown: breakdown,
+          ai_explanation: inference.explanation,
+        };
+      }));
+
+      // Rank by engagement score with diversity
+      return this.rankWithDiversity(recommendations);
+    } catch (error) {
+      console.error('SmartInference failed, falling back to local logic:', error);
+      // Fallback to original logic
+      return this.generatePersonalizedRecommendationsFallback(products, userProfile, context);
+    }
+  }
+
+  private async generatePersonalizedRecommendationsFallback(
+    products: Product[],
+    userProfile: UserProfile | null,
+    context: RecommendationContext
+  ): Promise<PersonalizedRecommendation[]> {
+    const styleEmbedding = fashionAIEngine.computeStyleEmbedding(userProfile!);
     const shouldExplore = Math.random() < this.explorationRate;
 
-    const recommendations = products.map(product => {
-      const engagementScore = this.predictEngagementScore(product, userProfile, styleEmbedding, context);
-      const returnRisk = returnsPredictor.predictReturnRisk(product, userProfile);
+    const recommendations = await Promise.all(products.map(async (product) => {
+      const engagementScore = await this.predictEngagementScore(product, userProfile!, styleEmbedding, context);
+      const returnRisk = await returnsPredictor.predictReturnRisk(product, userProfile);
       
       const breakdown = {
-        style_match: this.calculateStyleMatch(product, userProfile, styleEmbedding),
-        price_fit: this.calculatePriceFit(product, userProfile),
-        return_risk: 1 - returnRisk.risk_score, // Invert so higher is better
+        style_match: this.calculateStyleMatch(product, userProfile!, styleEmbedding),
+        price_fit: this.calculatePriceFit(product, userProfile!),
+        return_risk: 1 - returnRisk.risk_score,
         novelty: shouldExplore ? 0.8 : 0.2,
       };
 
@@ -78,18 +100,17 @@ class PersonalizationEngine {
         engagement_breakdown: breakdown,
         ai_explanation: this.explainRecommendation(product, breakdown, returnRisk),
       };
-    });
+    }));
 
-    // Rank by engagement score with diversity
     return this.rankWithDiversity(recommendations);
   }
 
-  private predictEngagementScore(
+  private async predictEngagementScore(
     product: Product,
     userProfile: UserProfile,
     styleEmbedding: number[],
     context: RecommendationContext
-  ): number {
+  ): Promise<number> {
     let score = 0;
 
     // Style matching (40%)
@@ -100,8 +121,9 @@ class PersonalizationEngine {
     const priceFit = this.calculatePriceFit(product, userProfile);
     score += priceFit * 0.2;
 
-    // Return risk (25%)
-    const returnRisk = returnsPredictor.predictReturnRisk(product, userProfile);
+    // Return risk (25%) - Note: This is async now, but keeping sync for compatibility
+    // In production, this should be awaited
+    const returnRisk = await returnsPredictor.predictReturnRisk(product, userProfile);
     score += (1 - returnRisk.risk_score) * 0.25;
 
     // Recency and relevance (15%)

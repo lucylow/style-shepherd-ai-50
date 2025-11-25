@@ -1,21 +1,7 @@
 import { Product, CartItem } from '@/types/fashion';
-
-interface UserProfile {
-  userId: string;
-  preferences?: {
-    favoriteColors?: string[];
-    preferredSizes?: string[];
-  };
-  orderHistory?: Array<{
-    id: string;
-    date?: string;
-    items: CartItem[];
-  }>;
-  returnHistory?: Array<{
-    productId: string;
-    reason?: string;
-  }>;
-}
+import { userMemoryService, UserProfile } from './raindrop/userMemoryService';
+import { styleInferenceService } from './raindrop/styleInferenceService';
+import { orderSQLService } from './raindrop/orderSQLService';
 
 interface ReturnRiskPrediction {
   risk_score: number;
@@ -47,11 +33,34 @@ interface CartRiskAnalysis {
 class ReturnsPredictor {
   private readonly industryAvgReturnRate = 0.25; // 25% fashion industry average
 
-  predictReturnRisk(
+  async predictReturnRisk(
     product: Product,
     userProfile: UserProfile | null,
     selectedSize?: string
-  ): ReturnRiskPrediction {
+  ): Promise<ReturnRiskPrediction> {
+    // Use SmartInference for return risk prediction
+    if (userProfile) {
+      try {
+        const result = await styleInferenceService.predictReturnRisk(
+          product.id,
+          userProfile.userId,
+          userProfile,
+          selectedSize
+        );
+        
+        return {
+          risk_score: result.riskScore,
+          risk_level: result.riskLevel,
+          primary_factors: result.factors,
+          mitigation_strategies: this.getMitigationStrategies(result.riskLevel, result.factors),
+          confidence: result.confidence,
+        };
+      } catch (error) {
+        console.error('SmartInference failed, falling back to local logic:', error);
+      }
+    }
+
+    // Fallback to local logic
     const features = this.engineerReturnFeatures(product, userProfile, selectedSize);
     const riskScore = this.calculateRiskScore(features);
     const riskFactors = this.analyzeRiskFactors(features, riskScore);
@@ -61,8 +70,27 @@ class ReturnsPredictor {
       risk_level: this.classifyRiskLevel(riskScore),
       primary_factors: riskFactors.primary,
       mitigation_strategies: riskFactors.mitigation,
-      confidence: 0.82 + Math.random() * 0.13, // 82-95% confidence
+      confidence: 0.82 + Math.random() * 0.13,
     };
+  }
+
+  private getMitigationStrategies(riskLevel: string, factors: string[]): string[] {
+    const strategies: string[] = [];
+    
+    if (riskLevel === 'high') {
+      strategies.push('Consider trying our virtual fitting room');
+      strategies.push('Review detailed size chart and measurements');
+    }
+    
+    if (factors.some(f => f.toLowerCase().includes('size'))) {
+      strategies.push('Check size recommendations based on your profile');
+    }
+    
+    if (factors.some(f => f.toLowerCase().includes('color'))) {
+      strategies.push('View similar items in your preferred colors');
+    }
+    
+    return strategies.length > 0 ? strategies : ['This item has good compatibility with your profile'];
   }
 
   private engineerReturnFeatures(
@@ -173,14 +201,14 @@ class ReturnsPredictor {
     return { primary, mitigation };
   }
 
-  predictBatchReturns(
+  async predictBatchReturns(
     cartItems: CartItem[],
     userProfile: UserProfile | null
-  ): CartRiskAnalysis {
-    const itemPredictions = cartItems.map(item => ({
+  ): Promise<CartRiskAnalysis> {
+    const itemPredictions = await Promise.all(cartItems.map(async (item) => ({
       item_id: item.product.id,
-      ...this.predictReturnRisk(item.product, userProfile, item.selectedSize || item.size),
-    }));
+      ...(await this.predictReturnRisk(item.product, userProfile, item.selectedSize || item.size)),
+    })));
 
     const totalRisk = itemPredictions.reduce((sum, pred) => sum + pred.risk_score, 0) / itemPredictions.length;
 

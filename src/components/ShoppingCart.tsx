@@ -1,10 +1,13 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ShoppingBag, AlertTriangle, CheckCircle, Minus, Plus, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
 import { Separator } from './ui/separator';
 import { CartItem } from '@/types/fashion';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
 
 interface ShoppingCartProps {
   isOpen: boolean;
@@ -23,10 +26,26 @@ export const ShoppingCart = ({
   onRemoveItem,
   onCheckout,
 }: ShoppingCartProps) => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const total = cartItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
   const totalReturnRisk = cartItems.length > 0
     ? cartItems.reduce((sum, item) => sum + (item.product.returnRisk || 0), 0) / cartItems.length
     : 0;
+
+  const handleCheckout = () => {
+    if (!user) {
+      toast.error('Please sign in to checkout');
+      navigate('/login');
+      return;
+    }
+    if (cartItems.length === 0) {
+      toast.error('Your cart is empty');
+      return;
+    }
+    navigate('/checkout');
+    onClose();
+  };
 
   return (
     <AnimatePresence>
@@ -203,7 +222,7 @@ export const ShoppingCart = ({
                 </div>
 
                 <Button
-                  onClick={onCheckout}
+                  onClick={handleCheckout}
                   className="w-full"
                   size="lg"
                 >

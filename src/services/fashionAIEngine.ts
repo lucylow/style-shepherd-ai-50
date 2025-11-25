@@ -1,31 +1,8 @@
 import { Product } from '@/types/fashion';
+import { styleInferenceService } from './raindrop/styleInferenceService';
+import { userMemoryService, UserProfile } from './raindrop/userMemoryService';
 
-interface UserProfile {
-  userId: string;
-  preferences?: {
-    favoriteColors?: string[];
-    preferredBrands?: string[];
-    preferredStyles?: string[];
-    preferredSizes?: string[];
-  };
-  bodyMeasurements?: {
-    height?: number;
-    weight?: number;
-    chest?: number;
-    waist?: number;
-    hips?: number;
-  };
-  orderHistory?: Array<{
-    id: string;
-    date?: string;
-    items: any[];
-  }>;
-  returnHistory?: Array<{
-    productId: string;
-    reason?: string;
-    date?: string;
-  }>;
-}
+// UserProfile is now imported from raindrop/userMemoryService
 
 interface IntentResult {
   type: 'size_recommendation' | 'style_advice' | 'product_search' | 'returns_prediction' | 'general';
@@ -48,7 +25,23 @@ class FashionAIEngine {
     returns_prediction: ['return', 'send back', 'doesn\'t fit', 'wrong size'],
   };
 
-  classifyFashionIntent(text: string): IntentResult {
+  async classifyFashionIntent(text: string, userId?: string): Promise<IntentResult> {
+    // Use SmartInference for intent analysis
+    try {
+      const result = await styleInferenceService.analyzeIntent(text, userId);
+      return {
+        type: result.intent,
+        confidence: result.confidence,
+        entities: result.entities,
+      };
+    } catch (error) {
+      console.error('SmartInference failed, falling back to local logic:', error);
+      // Fallback to original logic
+      return this.classifyFashionIntentFallback(text);
+    }
+  }
+
+  private classifyFashionIntentFallback(text: string): IntentResult {
     const lowerText = text.toLowerCase();
     const scores: Record<string, number> = {};
 
@@ -98,7 +91,16 @@ class FashionAIEngine {
     userProfile: UserProfile | null,
     context: any = {}
   ): Promise<AIResponse> {
-    const intent = this.classifyFashionIntent(query);
+    // Store conversation in SmartMemory
+    if (userProfile) {
+      await userMemoryService.appendConversation(userProfile.userId, {
+        message: query,
+        type: 'user',
+        timestamp: Date.now(),
+      });
+    }
+
+    const intent = await this.classifyFashionIntent(query, userProfile?.userId);
 
     switch (intent.type) {
       case 'size_recommendation':
@@ -111,7 +113,16 @@ class FashionAIEngine {
         return this.handleProductSearch(intent, userProfile);
       
       default:
-        return this.handleGeneralQuery(intent, userProfile);
+        const response = await this.handleGeneralQuery(intent, userProfile);
+        // Store assistant response in SmartMemory
+        if (userProfile) {
+          await userMemoryService.appendConversation(userProfile.userId, {
+            message: response.text,
+            type: 'assistant',
+            timestamp: Date.now(),
+          });
+        }
+        return response;
     }
   }
 

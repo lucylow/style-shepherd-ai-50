@@ -8,7 +8,7 @@ import { ShoppingCart } from '@/components/ShoppingCart';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CartItem, Product, VoiceResponse } from '@/types/fashion';
-import { mockAuth } from '@/services/mockAuth';
+import { useAuth } from '@/contexts/AuthContext';
 import { mockProductService } from '@/services/mockProducts';
 import { mockCartService } from '@/services/mockCart';
 
@@ -20,8 +20,8 @@ const Dashboard = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
-  const currentUser = mockAuth.getCurrentUser();
-  const userId = currentUser?.id || 'guest';
+  const { user } = useAuth();
+  const userId = user?.id || 'guest';
 
   useEffect(() => {
     loadInitialData();
@@ -329,7 +329,7 @@ const Dashboard = () => {
           setCartItems(prev => prev.filter(item => item.product.id !== productId));
         }}
         onCheckout={() => {
-          console.log('Proceeding to checkout', cartItems);
+          // Checkout is handled in ShoppingCart component
         }}
       />
     </div>
