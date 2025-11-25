@@ -312,17 +312,3 @@ For questions, bug reports, feature requests, or contributions, please open issu
 The Style Shepherd project welcomes collaboration from AI researchers, technical architects, fashion-tech innovators, and startup practitioners aiming to pioneer decentralized AI operating systems for small to medium businesses.
 
 ***
-
-This README emphasizes Style Shepherd's advanced AI system design, robust agent orchestration model, and integrated persistent memory concept, aimed to impress judges, developers, and collaborators with its thorough technical sophistication.
-
-[Visit the GitHub Repository](https://github.com/lucylow/style-shepherd-demo)  
-[Watch AI Architecture Video](https://www.youtube.com/watch?v=HJ-NTxs1EjI)
-
-[1](https://www.style3d.com/blog/how-can-an-ai-platform-empower-fashion-entrepreneurs-with-style3d/)
-[2](https://www.style3d.ai/blog/how-can-ai-software-elevate-a-fashion-business/)
-[3](https://www.youtube.com/watch?v=VKf9IQ6l0Ps)
-[4](https://www.raspberry.ai)
-[5](https://www.startupecosystem.ca/news/ai-in-vogue-canadian-fashiontech-startups-changing-the-way-we-shop/)
-[6](https://www.sciencedirect.com/science/article/pii/S2773207X24001386)
-[7](https://finance.yahoo.com/news/bringing-ai-fashion-startups-changing-193600901.html)
-[8](https://www.ycombinator.com/companies/industry/generative-ai)
