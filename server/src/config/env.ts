@@ -34,8 +34,9 @@ const envSchema = z.object({
   VULTR_API_ENDPOINT: z.string().url().optional(),
   VULTR_API_KEY: z.string().optional(),
   
-  // ElevenLabs
-  ELEVENLABS_API_KEY: z.string().min(1),
+  // ElevenLabs (optional - voice AI platform)
+  ELEVENLABS_API_KEY: z.string().optional(),
+  ELEVEN_LABS_API_KEY: z.string().optional(), // Legacy support
   
   // WorkOS
   WORKOS_API_KEY: z.string().min(1),

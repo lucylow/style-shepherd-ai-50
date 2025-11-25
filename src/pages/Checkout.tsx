@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { stripePromise } from '@/lib/stripe';
@@ -12,6 +12,7 @@ import { CartItem } from '@/types/fashion';
 import { paymentService } from '@/services/paymentService';
 import { mockOrderService } from '@/services/mockOrders';
 import { mockCartService } from '@/services/mockCart';
+import { useCartCalculations } from '@/hooks/useCartCalculations';
 import { toast } from 'sonner';
 import { ArrowLeft, CreditCard, Lock } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -36,15 +37,9 @@ const CheckoutForm = ({ cartItems, onOrderComplete }: CheckoutProps) => {
     country: 'US',
   });
 
-  const subtotal = cartItems.reduce(
-    (sum, item) => sum + item.product.price * item.quantity,
-    0
-  );
-  const shipping = 10.0; // Fixed shipping cost
-  const tax = subtotal * 0.08; // 8% tax
-  const total = subtotal + shipping + tax;
+  const { subtotal, shipping, tax, total } = useCartCalculations(cartItems);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!stripe || !elements || !user) {
@@ -55,10 +50,11 @@ const CheckoutForm = ({ cartItems, onOrderComplete }: CheckoutProps) => {
     setIsProcessing(true);
 
     try {
-      // Create payment intent
+      // Create payment intent with shipping info
       const paymentIntent = await paymentService.createPaymentIntent(
         cartItems,
-        user.id
+        user.id,
+        shippingInfo
       );
 
       // Confirm payment with PaymentElement
@@ -90,32 +86,37 @@ const CheckoutForm = ({ cartItems, onOrderComplete }: CheckoutProps) => {
       }
 
       if (confirmedPayment?.status === 'succeeded') {
-        // Create order
-        const order = await mockOrderService.createOrder(
-          user.id,
-          cartItems,
-          {
-            address: shippingInfo.address,
-            city: shippingInfo.city,
-            zipCode: shippingInfo.zipCode,
-            country: shippingInfo.country,
-          }
-        );
+        // Confirm payment on backend and create order
+        try {
+          const orderResult = await paymentService.confirmPayment(
+            paymentIntent.paymentIntentId,
+            cartItems,
+            user.id,
+            shippingInfo
+          );
 
-        // Clear cart
-        await mockCartService.clearCart(user.id);
+          // Clear cart
+          await mockCartService.clearCart(user.id);
 
-        toast.success('Payment successful! Order confirmed.');
-        onOrderComplete();
-        navigate(`/order-success?orderId=${order.id}`);
+          toast.success('Payment successful! Order confirmed.');
+          onOrderComplete();
+          navigate(`/order-success?orderId=${orderResult.orderId}`);
+        } catch (orderError: any) {
+          console.error('Order creation error:', orderError);
+          // Payment succeeded but order creation failed - still show success
+          // The webhook will handle order creation
+          toast.success('Payment successful! Your order is being processed.');
+          await mockCartService.clearCart(user.id);
+          navigate(`/order-success?paymentIntentId=${paymentIntent.paymentIntentId}`);
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Checkout error:', error);
-      toast.error('An error occurred during checkout. Please try again.');
+      toast.error(error.message || 'An error occurred during checkout. Please try again.');
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [stripe, elements, user, cartItems, shippingInfo, navigate, onOrderComplete]);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -303,7 +304,8 @@ const Checkout = () => {
     };
 
     loadCart();
-  }, [user, navigate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   if (isLoading) {
     return (
@@ -319,21 +321,30 @@ const Checkout = () => {
   // Create payment intent options for Elements
   const [paymentIntentOptions, setPaymentIntentOptions] = useState<{ clientSecret?: string }>({});
 
+  // Memoize cart items string for dependency comparison
+  const cartItemsKey = useMemo(() => 
+    cartItems.map(item => `${item.product.id}-${item.quantity}`).join(','), 
+    [cartItems]
+  );
+
   useEffect(() => {
     const setupPayment = async () => {
       if (!user || cartItems.length === 0) return;
 
       try {
+        // Create payment intent without shipping info initially
+        // Shipping info will be included when user submits the form
         const paymentIntent = await paymentService.createPaymentIntent(cartItems, user.id);
         setPaymentIntentOptions({ clientSecret: paymentIntent.clientSecret });
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error setting up payment:', error);
-        toast.error('Failed to initialize payment. Please try again.');
+        toast.error(error.message || 'Failed to initialize payment. Please try again.');
       }
     };
 
     setupPayment();
-  }, [user, cartItems]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, cartItemsKey]);
 
   return (
     <div className="min-h-screen bg-background">

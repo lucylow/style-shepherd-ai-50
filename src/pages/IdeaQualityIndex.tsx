@@ -11,6 +11,7 @@ import {
   Sparkles,
   Shield,
   BarChart3,
+  Trophy,
 } from 'lucide-react';
 import { IdeaQualitySummary } from '@/components/idea-quality/IdeaQualitySummary';
 
@@ -63,6 +64,13 @@ const dashboardLinks = [
     icon: TrendingUp,
     path: '/idea-quality-assessment',
     color: 'from-indigo-500 to-indigo-600',
+  },
+  {
+    title: 'Judge-Facing Metrics',
+    description: 'Systematic assessment against hackathon judging criteria',
+    icon: Trophy,
+    path: '/judging-criteria',
+    color: 'from-yellow-500 to-orange-600',
   },
 ];
 

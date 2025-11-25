@@ -107,8 +107,8 @@ export class AuthService {
         user: {
           id: user.id,
           email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
+          firstName: user.firstName || undefined,
+          lastName: user.lastName || undefined,
           createdAt: new Date().toISOString(),
         },
         sessionToken,

@@ -1,6 +1,6 @@
 /**
  * Stripe Payment Service
- * Handles payments and returns prediction
+ * Handles payments, subscriptions, checkout sessions, and returns prediction
  */
 
 import Stripe from 'stripe';
@@ -50,7 +50,7 @@ export class PaymentService {
 
   constructor() {
     this.stripe = new Stripe(env.STRIPE_SECRET_KEY, {
-      apiVersion: '2024-11-20.acacia',
+      apiVersion: '2023-10-16',
     });
   }
 
@@ -235,19 +235,19 @@ export class PaymentService {
       await vultrPostgres.transaction(async (client) => {
         // Check inventory before creating order
         for (const item of order.items) {
-          const productResult = await client.query(
+          const productResult = await client.query<{ stock: number }>(
             'SELECT stock FROM catalog WHERE id = $1',
             [item.productId]
           );
           
-          if (productResult.length === 0) {
+          if (productResult.rows.length === 0) {
             throw new BusinessLogicError(
               `Product ${item.productId} not found`,
               ErrorCode.PRODUCT_NOT_FOUND
             );
           }
           
-          const stock = productResult[0].stock;
+          const stock = productResult.rows[0].stock;
           if (stock < item.quantity) {
             throw new BusinessLogicError(
               `Insufficient stock for product ${item.productId}. Available: ${stock}, Requested: ${item.quantity}`,
@@ -317,30 +317,537 @@ export class PaymentService {
   }
 
   /**
-   * Handle Stripe webhook
+   * Create or retrieve Stripe customer
    */
-  async handleWebhook(payload: string, signature: string): Promise<void> {
+  async getOrCreateCustomer(userId: string, email?: string): Promise<string> {
+    try {
+      // Check if customer exists in database
+      const existing = await vultrPostgres.query(
+        'SELECT stripe_customer_id FROM users WHERE user_id = $1',
+        [userId]
+      );
+
+      if (existing.length > 0 && existing[0].stripe_customer_id) {
+        return existing[0].stripe_customer_id;
+      }
+
+      // Create new Stripe customer
+      const customer = await this.stripe.customers.create({
+        email,
+        metadata: {
+          userId,
+          integration: 'style-shepherd',
+        },
+      });
+
+      // Store in database
+      await vultrPostgres.query(
+        `INSERT INTO users (user_id, stripe_customer_id, email, created_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id) DO UPDATE SET stripe_customer_id = $2`,
+        [userId, customer.id, email || null, new Date().toISOString()]
+      );
+
+      return customer.id;
+    } catch (error: any) {
+      throw new ExternalServiceError('Stripe', 'Failed to create customer', error);
+    }
+  }
+
+  /**
+   * Create checkout session for one-time payments or subscriptions
+   */
+  async createCheckoutSession(params: {
+    userId: string;
+    mode: 'payment' | 'subscription' | 'setup';
+    priceId?: string;
+    amount?: number;
+    currency?: string;
+    successUrl: string;
+    cancelUrl: string;
+    customerEmail?: string;
+    metadata?: Record<string, string>;
+  }): Promise<{ url: string; sessionId: string }> {
+    try {
+      const customerId = await this.getOrCreateCustomer(params.userId, params.customerEmail);
+
+      const sessionParams: Stripe.Checkout.SessionCreateParams = {
+        mode: params.mode,
+        customer: customerId,
+        success_url: params.successUrl,
+        cancel_url: params.cancelUrl,
+        payment_method_types: ['card'],
+        metadata: {
+          userId: params.userId,
+          integration: 'style-shepherd',
+          ...params.metadata,
+        },
+      };
+
+      if (params.mode === 'subscription' && params.priceId) {
+        sessionParams.line_items = [{ price: params.priceId, quantity: 1 }];
+      } else if (params.mode === 'payment' && params.amount) {
+        sessionParams.line_items = [{
+          price_data: {
+            currency: params.currency || 'usd',
+            product_data: {
+              name: 'Style Shepherd Purchase',
+            },
+            unit_amount: Math.round(params.amount * 100), // Convert to cents
+          },
+          quantity: 1,
+        }];
+      }
+
+      const session = await this.stripe.checkout.sessions.create(sessionParams);
+
+      if (!session.url) {
+        throw new PaymentError('Failed to create checkout session - no URL returned');
+      }
+
+      return {
+        url: session.url,
+        sessionId: session.id,
+      };
+    } catch (error: any) {
+      if (error instanceof PaymentError) {
+        throw error;
+      }
+      throw new ExternalServiceError('Stripe', 'Failed to create checkout session', error);
+    }
+  }
+
+  /**
+   * Create subscription for user
+   */
+  async createSubscription(
+    userId: string,
+    priceId: string,
+    customerEmail?: string
+  ): Promise<{ subscriptionId: string; clientSecret?: string }> {
+    try {
+      const customerId = await this.getOrCreateCustomer(userId, customerEmail);
+
+      const subscription = await this.stripe.subscriptions.create({
+        customer: customerId,
+        items: [{ price: priceId }],
+        metadata: {
+          userId,
+          integration: 'style-shepherd',
+        },
+        payment_behavior: 'default_incomplete',
+        payment_settings: { save_default_payment_method: 'on_subscription' },
+        expand: ['latest_invoice.payment_intent'],
+      });
+
+      const invoice = subscription.latest_invoice as Stripe.Invoice;
+      const paymentIntent = invoice?.payment_intent as Stripe.PaymentIntent;
+
+      return {
+        subscriptionId: subscription.id,
+        clientSecret: paymentIntent?.client_secret || undefined,
+      };
+    } catch (error: any) {
+      throw new ExternalServiceError('Stripe', 'Failed to create subscription', error);
+    }
+  }
+
+  /**
+   * Cancel subscription
+   */
+  async cancelSubscription(subscriptionId: string, immediately: boolean = false): Promise<void> {
+    try {
+      if (immediately) {
+        await this.stripe.subscriptions.cancel(subscriptionId);
+      } else {
+        await this.stripe.subscriptions.update(subscriptionId, {
+          cancel_at_period_end: true,
+        });
+      }
+    } catch (error: any) {
+      throw new ExternalServiceError('Stripe', 'Failed to cancel subscription', error);
+    }
+  }
+
+  /**
+   * Create invoice for performance-based billing (prevented returns commission)
+   */
+  async createPerformanceInvoice(params: {
+    retailerCustomerId: string;
+    orderId: string;
+    preventedValue: number;
+    commissionRate: number;
+    description?: string;
+  }): Promise<{ invoiceId: string }> {
+    try {
+      const commissionAmount = Math.round(params.preventedValue * params.commissionRate * 100);
+
+      // Create invoice item
+      await this.stripe.invoiceItems.create({
+        customer: params.retailerCustomerId,
+        amount: commissionAmount,
+        currency: 'usd',
+        description: params.description || `Prevented returns commission — order ${params.orderId}`,
+        metadata: {
+          orderId: params.orderId,
+          preventedValue: params.preventedValue.toString(),
+          commissionRate: params.commissionRate.toString(),
+          integration: 'style-shepherd',
+        },
+      });
+
+      // Create and finalize invoice
+      const invoice = await this.stripe.invoices.create({
+        customer: params.retailerCustomerId,
+        collection_method: 'send_invoice',
+        days_until_due: 30,
+        metadata: {
+          orderId: params.orderId,
+          type: 'performance_billing',
+          integration: 'style-shepherd',
+        },
+      });
+
+      const finalizedInvoice = await this.stripe.invoices.finalizeInvoice(invoice.id);
+
+      // Store in database
+      try {
+        await vultrPostgres.query(
+          `INSERT INTO invoices (invoice_id, retailer_id, stripe_invoice_id, amount_cents, status, order_id, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            `inv_${Date.now()}`,
+            params.retailerCustomerId,
+            finalizedInvoice.id,
+            commissionAmount,
+            finalizedInvoice.status,
+            params.orderId,
+            new Date().toISOString(),
+          ]
+        );
+      } catch (dbError) {
+        console.warn('Failed to store invoice in database:', dbError);
+      }
+
+      return { invoiceId: finalizedInvoice.id };
+    } catch (error: any) {
+      throw new ExternalServiceError('Stripe', 'Failed to create performance invoice', error);
+    }
+  }
+
+  /**
+   * Create payment intent with idempotency key
+   */
+  async createPaymentIntentWithIdempotency(
+    order: Order,
+    idempotencyKey: string
+  ): Promise<{
+    clientSecret: string;
+    paymentIntentId: string;
+    returnPrediction: ReturnPrediction;
+  }> {
+    try {
+      const returnPrediction = await this.createReturnPrediction(order);
+      const customerId = await this.getOrCreateCustomer(order.userId);
+
+      const paymentIntent = await this.stripe.paymentIntents.create(
+        {
+          amount: Math.round(order.totalAmount * 100),
+          currency: 'usd',
+          customer: customerId,
+          metadata: {
+            userId: order.userId,
+            orderId: `order_${Date.now()}`,
+            returnRiskScore: returnPrediction.score.toString(),
+            integration: 'style-shepherd',
+          },
+          automatic_payment_methods: { enabled: true },
+        },
+        {
+          idempotencyKey,
+        }
+      );
+
+      if (!paymentIntent.client_secret) {
+        throw new PaymentError('Failed to create payment intent - no client secret returned');
+      }
+
+      return {
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id,
+        returnPrediction,
+      };
+    } catch (error: any) {
+      if (error instanceof PaymentError || error instanceof BusinessLogicError) {
+        throw error;
+      }
+      throw new ExternalServiceError('Stripe', 'Failed to create payment intent', error);
+    }
+  }
+
+  /**
+   * Process refund
+   */
+  async createRefund(
+    paymentIntentId: string,
+    amount?: number,
+    reason?: 'duplicate' | 'fraudulent' | 'requested_by_customer'
+  ): Promise<{ refundId: string }> {
+    try {
+      const refundParams: Stripe.RefundCreateParams = {
+        payment_intent: paymentIntentId,
+        reason,
+      };
+
+      if (amount) {
+        refundParams.amount = Math.round(amount * 100);
+      }
+
+      const refund = await this.stripe.refunds.create(refundParams);
+
+      return { refundId: refund.id };
+    } catch (error: any) {
+      throw new ExternalServiceError('Stripe', 'Failed to create refund', error);
+    }
+  }
+
+  /**
+   * Handle Stripe webhook
+   * This is called when Stripe sends events about payment status changes
+   */
+  async handleWebhook(payload: Buffer | string, signature: string): Promise<void> {
     if (!env.STRIPE_WEBHOOK_SECRET) {
+      console.warn('Stripe webhook secret not configured - webhook verification skipped');
+      // In development, allow webhooks without secret for testing
+      if (env.NODE_ENV === 'production') {
       throw new Error('Stripe webhook secret not configured');
+      }
     }
 
-    const event = this.stripe.webhooks.constructEvent(
-      payload,
-      signature,
-      env.STRIPE_WEBHOOK_SECRET
-    );
+    const payloadString = typeof payload === 'string' ? payload : payload.toString('utf8');
 
+    let event: Stripe.Event;
+    
+    try {
+      event = this.stripe.webhooks.constructEvent(
+        payloadString,
+        signature,
+        env.STRIPE_WEBHOOK_SECRET || ''
+      );
+    } catch (err: any) {
+      console.error('Webhook signature verification failed:', err.message);
+      throw new PaymentError(`Webhook signature verification failed: ${err.message}`);
+    }
+
+    // Store webhook event in database
+    try {
+      await vultrPostgres.query(
+        `INSERT INTO webhook_events (stripe_event_id, type, payload, processed, created_at)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (stripe_event_id) DO NOTHING`,
+        [
+          event.id,
+          event.type,
+          JSON.stringify(event.data),
+          false,
+          new Date().toISOString(),
+        ]
+      );
+    } catch (dbError) {
+      console.warn('Failed to store webhook event in database:', dbError);
+    }
+
+    // Handle different event types
     switch (event.type) {
-      case 'payment_intent.succeeded':
-        // Handle successful payment
-        console.log('Payment succeeded:', event.data.object);
+      case 'payment_intent.succeeded': {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        console.log('✅ Payment succeeded:', paymentIntent.id);
+        
+        // Update order status in database
+        try {
+          const userId = paymentIntent.metadata?.userId;
+          const orderId = paymentIntent.metadata?.orderId;
+          
+          if (userId && orderId) {
+            await vultrPostgres.query(
+              `UPDATE orders 
+               SET status = 'paid', 
+                   payment_intent_id = $1,
+                   updated_at = $2
+               WHERE order_id = $3 AND user_id = $4`,
+              [paymentIntent.id, new Date().toISOString(), orderId, userId]
+            );
+            console.log(`Order ${orderId} marked as paid`);
+          }
+        } catch (dbError) {
+          console.error('Failed to update order status:', dbError);
+          // Don't throw - webhook was received, just log the error
+        }
         break;
-      case 'payment_intent.payment_failed':
-        // Handle failed payment
-        console.log('Payment failed:', event.data.object);
+      }
+      
+      case 'payment_intent.payment_failed': {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        console.log('❌ Payment failed:', paymentIntent.id);
+        
+        // Update order status to failed
+        try {
+          const userId = paymentIntent.metadata?.userId;
+          const orderId = paymentIntent.metadata?.orderId;
+          
+          if (userId && orderId) {
+            await vultrPostgres.query(
+              `UPDATE orders 
+               SET status = 'payment_failed', 
+                   updated_at = $1
+               WHERE order_id = $2 AND user_id = $3`,
+              [new Date().toISOString(), orderId, userId]
+            );
+            console.log(`Order ${orderId} marked as payment failed`);
+          }
+        } catch (dbError) {
+          console.error('Failed to update order status:', dbError);
+        }
         break;
+      }
+      
+      case 'payment_intent.canceled': {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        console.log('⚠️ Payment canceled:', paymentIntent.id);
+        break;
+      }
+      
+      case 'charge.refunded': {
+        const charge = event.data.object as Stripe.Charge;
+        console.log('💰 Refund processed:', charge.id);
+        
+        // Update order status to refunded
+        try {
+          const paymentIntentId = charge.payment_intent as string;
+          if (paymentIntentId) {
+            const paymentIntent = await this.stripe.paymentIntents.retrieve(paymentIntentId);
+            const userId = paymentIntent.metadata?.userId;
+            const orderId = paymentIntent.metadata?.orderId;
+            
+            if (userId && orderId) {
+              await vultrPostgres.query(
+                `UPDATE orders 
+                 SET status = 'refunded', 
+                     updated_at = $1
+                 WHERE order_id = $2 AND user_id = $3`,
+                [new Date().toISOString(), orderId, userId]
+              );
+              console.log(`Order ${orderId} marked as refunded`);
+            }
+          }
+        } catch (dbError) {
+          console.error('Failed to update order status for refund:', dbError);
+        }
+        break;
+      }
+
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object as Stripe.Invoice;
+        console.log('✅ Invoice payment succeeded:', invoice.id);
+        // Handle subscription renewals or one-time invoice payments
+        try {
+          if (invoice.subscription) {
+            await vultrPostgres.query(
+              `UPDATE subscriptions SET status = 'active', updated_at = $1 WHERE stripe_subscription_id = $2`,
+              [new Date().toISOString(), invoice.subscription as string]
+            );
+          }
+        } catch (dbError) {
+          console.error('Failed to update subscription status:', dbError);
+        }
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object as Stripe.Invoice;
+        console.log('❌ Invoice payment failed:', invoice.id);
+        // Notify user, update subscription status, etc.
+        try {
+          if (invoice.subscription) {
+            await vultrPostgres.query(
+              `UPDATE subscriptions SET status = 'past_due', updated_at = $1 WHERE stripe_subscription_id = $2`,
+              [new Date().toISOString(), invoice.subscription as string]
+            );
+          }
+        } catch (dbError) {
+          console.error('Failed to update subscription status:', dbError);
+        }
+        break;
+      }
+
+      case 'charge.dispute.created': {
+        const dispute = event.data.object as Stripe.Dispute;
+        console.log('⚠️ Dispute created:', dispute.id);
+        // Alert team, create evidence, etc.
+        break;
+      }
+
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object as Stripe.Subscription;
+        console.log('📋 Subscription updated:', subscription.id);
+        const userId = subscription.metadata?.userId;
+
+        if (userId) {
+          try {
+            await vultrPostgres.query(
+              `INSERT INTO subscriptions (subscription_id, user_id, stripe_subscription_id, status, current_period_end, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6)
+               ON CONFLICT (stripe_subscription_id) DO UPDATE SET status = $4, current_period_end = $5, updated_at = $6`,
+              [
+                `sub_${Date.now()}`,
+                userId,
+                subscription.id,
+                subscription.status,
+                new Date(subscription.current_period_end * 1000).toISOString(),
+                new Date().toISOString(),
+              ]
+            );
+          } catch (dbError) {
+            console.error('Failed to update subscription:', dbError);
+          }
+        }
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object as Stripe.Subscription;
+        console.log('🗑️ Subscription deleted:', subscription.id);
+        try {
+          await vultrPostgres.query(
+            'UPDATE subscriptions SET status = $1, updated_at = $2 WHERE stripe_subscription_id = $3',
+            ['canceled', new Date().toISOString(), subscription.id]
+          );
+        } catch (dbError) {
+          console.error('Failed to update subscription status:', dbError);
+        }
+        break;
+      }
+
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        console.log('✅ Checkout session completed:', session.id);
+        // Handle successful checkout - create order, activate subscription, etc.
+        break;
+      }
+      
       default:
         console.log(`Unhandled event type: ${event.type}`);
+    }
+
+    // Mark event as processed
+    try {
+      await vultrPostgres.query(
+        'UPDATE webhook_events SET processed = true WHERE stripe_event_id = $1',
+        [event.id]
+      );
+    } catch (dbError) {
+      console.warn('Failed to mark webhook event as processed:', dbError);
     }
   }
 }

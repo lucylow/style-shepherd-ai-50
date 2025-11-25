@@ -1,0 +1,457 @@
+{
+  "orders": [
+    {
+      "id": "ord_0001",
+      "user_id": "user_123",
+      "items": [
+        {
+          "sku": "fit-report-pro",
+          "title": "Premium Fit Report",
+          "qty": 1,
+          "unit_price_cents": 1999
+        }
+      ],
+      "amount_cents": 1999,
+      "currency": "usd",
+      "status": "paid",
+      "payment_intent_id": "pi_1JqYx2ABCxyz",
+      "payment_status": "succeeded",
+      "payment_method": {
+        "brand": "visa",
+        "last4": "4242"
+      },
+      "download_url": "/downloads/fit-report-ord_0001.pdf",
+      "created_at": "2025-11-25T18:00:00Z",
+      "updated_at": "2025-11-25T18:05:00Z"
+    },
+    {
+      "id": "ord_1002",
+      "user_id": "retailer_user",
+      "items": [
+        {
+          "sku": "premium-subscription",
+          "title": "Premium Subscription",
+          "qty": 1,
+          "unit_price_cents": 25000
+        }
+      ],
+      "amount_cents": 25000,
+      "currency": "usd",
+      "status": "fulfilled",
+      "payment_intent_id": "pi_1XYZ",
+      "payment_status": "succeeded",
+      "predicted_return_before": 0.30,
+      "predicted_return_after": 0.12,
+      "prevented_prob": 0.18,
+      "prevented_value_cents": 4500,
+      "commission_rate": 0.15,
+      "commission_amount_cents": 675,
+      "created_at": "2025-11-25T19:00:00Z",
+      "updated_at": "2025-11-25T19:30:00Z"
+    },
+    {
+      "id": "ord_0003",
+      "user_id": "user_456",
+      "items": [
+        {
+          "sku": "basic-report",
+          "title": "Basic Fit Report",
+          "qty": 1,
+          "unit_price_cents": 999
+        }
+      ],
+      "amount_cents": 999,
+      "currency": "usd",
+      "status": "pending_payment",
+      "created_at": "2025-11-26T10:00:00Z"
+    }
+  ],
+  "payment_intents": [
+    {
+      "id": "pi_1JqYx2ABCxyz",
+      "client_secret": "pi_1JqYx2ABCxyz_secret_123456",
+      "amount_cents": 1999,
+      "currency": "usd",
+      "status": "succeeded",
+      "metadata": {
+        "orderId": "ord_0001",
+        "integration": "style-shepherd",
+        "userId": "user_123"
+      },
+      "charges": [
+        {
+          "id": "ch_1JqYx2CH",
+          "status": "succeeded",
+          "amount": 1999,
+          "payment_method_details": {
+            "card": {
+              "brand": "visa",
+              "last4": "4242"
+            }
+          }
+        }
+      ],
+      "created_at": "2025-11-25T18:00:00Z"
+    },
+    {
+      "id": "pi_1XYZ",
+      "client_secret": "pi_1XYZ_secret_789",
+      "amount_cents": 25000,
+      "currency": "usd",
+      "status": "succeeded",
+      "metadata": {
+        "orderId": "ord_1002",
+        "integration": "style-shepherd",
+        "userId": "retailer_user"
+      },
+      "created_at": "2025-11-25T19:00:00Z"
+    }
+  ],
+  "checkout_sessions": [
+    {
+      "id": "cs_test_a1b2c3d4",
+      "url": "https://checkout.stripe.com/pay/cs_test_a1b2c3d4",
+      "mode": "subscription",
+      "price_id": "price_ProMonthly_001",
+      "customer_email": "bob@example.com",
+      "success_url": "https://app.example.com/subscription/success",
+      "cancel_url": "https://app.example.com/subscription/cancel",
+      "status": "complete",
+      "created_at": "2025-11-25T20:00:00Z"
+    }
+  ],
+  "subscriptions": [
+    {
+      "id": "sub_001",
+      "customer_id": "cus_bob_001",
+      "customer_email": "bob@example.com",
+      "status": "active",
+      "price_id": "price_ProMonthly_001",
+      "amount_cents": 1999,
+      "currency": "usd",
+      "current_period_start": "2025-11-25T20:00:00Z",
+      "current_period_end": "2025-12-25T20:00:00Z",
+      "created_at": "2025-11-25T20:00:00Z"
+    }
+  ],
+  "invoices": [
+    {
+      "id": "in_001",
+      "object": "invoice",
+      "customer_email": "bob@example.com",
+      "customer_id": "cus_bob_001",
+      "amount_paid": 1999,
+      "currency": "usd",
+      "subscription": "sub_001",
+      "status": "paid",
+      "lines": {
+        "data": [
+          {
+            "price": {
+              "id": "price_ProMonthly_001"
+            },
+            "quantity": 1
+          }
+        ]
+      },
+      "created_at": "2025-11-25T20:05:00Z"
+    },
+    {
+      "id": "in_2048",
+      "customer": "cus_retailer_001",
+      "amount_due": 675,
+      "currency": "usd",
+      "status": "open",
+      "metadata": {
+        "pilot_id": "pilot_summer_01",
+        "calculation_order": "ord_1002"
+      },
+      "description": "Prevented-returns commission — order ord_1002",
+      "created_at": "2025-11-25T19:00:00Z",
+      "due_date": "2025-12-25T19:00:00Z"
+    },
+    {
+      "id": "in_999",
+      "customer": "cus_retailer_001",
+      "amount_due": 12000,
+      "status": "open",
+      "created_at": "2025-11-26T08:00:00Z"
+    }
+  ],
+  "performance_commissions": [
+    {
+      "order_id": "ord_1002",
+      "order_value_cents": 25000,
+      "predicted_return_before": 0.30,
+      "predicted_return_after": 0.12,
+      "prevented_prob": 0.18,
+      "prevented_value_cents": 4500,
+      "commission_rate": 0.15,
+      "commission_amount_cents": 675,
+      "invoice_id": "in_2048",
+      "status": "pending",
+      "created_at": "2025-11-25T19:00:00Z"
+    }
+  ],
+  "connected_accounts": [
+    {
+      "id": "acct_conn_001",
+      "object": "account",
+      "type": "express",
+      "country": "US",
+      "capabilities": {
+        "card_payments": "active",
+        "transfers": "active"
+      },
+      "email": "merchant@boutique.example",
+      "business_profile": {
+        "mcc": "5699",
+        "url": "https://boutique.example"
+      },
+      "created_at": "2025-11-25T15:00:00Z"
+    }
+  ],
+  "account_links": [
+    {
+      "id": "link_001",
+      "account_id": "acct_conn_001",
+      "url": "https://connect.stripe.com/setup/s/some-onboarding-token",
+      "expires_at": "2025-11-26T19:00:00Z",
+      "created_at": "2025-11-25T15:00:00Z"
+    }
+  ],
+  "payouts": [
+    {
+      "id": "po_789",
+      "amount_cents": 150000,
+      "currency": "usd",
+      "arrival_date": "2025-11-30",
+      "status": "in_transit",
+      "destination": "ba_001",
+      "connected_account_id": "acct_conn_001",
+      "created_at": "2025-11-28T10:00:00Z"
+    }
+  ],
+  "refunds": [
+    {
+      "id": "re_001",
+      "charge": "ch_1JqYx2CH",
+      "amount": 1999,
+      "currency": "usd",
+      "status": "succeeded",
+      "reason": "customer_request",
+      "created_at": "2025-11-26T09:00:00Z"
+    }
+  ],
+  "disputes": [
+    {
+      "id": "dp_001",
+      "charge": "ch_1JqYx2CH",
+      "amount": 1999,
+      "currency": "usd",
+      "status": "needs_response",
+      "reason": "fraudulent",
+      "created_at": "2025-11-26T10:00:00Z"
+    }
+  ],
+  "webhook_events": [
+    {
+      "id": "evt_1JqYx2_EVT",
+      "stripe_event_id": "evt_1JqYx2_EVT",
+      "type": "payment_intent.succeeded",
+      "payload": {
+        "id": "evt_1JqYx2_EVT",
+        "type": "payment_intent.succeeded",
+        "data": {
+          "object": {
+            "id": "pi_1JqYx2ABCxyz",
+            "object": "payment_intent",
+            "amount": 1999,
+            "currency": "usd",
+            "status": "succeeded",
+            "metadata": {
+              "orderId": "ord_0001",
+              "integration": "style-shepherd"
+            },
+            "charges": {
+              "data": [
+                {
+                  "id": "ch_1JqYx2CH",
+                  "status": "succeeded",
+                  "amount": 1999,
+                  "payment_method_details": {
+                    "card": {
+                      "brand": "visa",
+                      "last4": "4242"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "processed": true,
+      "created_at": "2025-11-25T18:05:00Z"
+    },
+    {
+      "id": "evt_invoice_paid_01",
+      "stripe_event_id": "evt_invoice_paid_01",
+      "type": "invoice.payment_succeeded",
+      "payload": {
+        "id": "evt_invoice_paid_01",
+        "type": "invoice.payment_succeeded",
+        "data": {
+          "object": {
+            "id": "in_001",
+            "object": "invoice",
+            "customer_email": "bob@example.com",
+            "amount_paid": 1999,
+            "currency": "usd",
+            "subscription": "sub_001",
+            "lines": {
+              "data": [
+                {
+                  "price": {
+                    "id": "price_ProMonthly_001"
+                  },
+                  "quantity": 1
+                }
+              ]
+            }
+          }
+        }
+      },
+      "processed": true,
+      "created_at": "2025-11-25T20:05:00Z"
+    },
+    {
+      "id": "evt_invoice_failed_01",
+      "stripe_event_id": "evt_invoice_failed_01",
+      "type": "invoice.payment_failed",
+      "payload": {
+        "id": "evt_invoice_failed_01",
+        "type": "invoice.payment_failed",
+        "data": {
+          "object": {
+            "id": "in_999",
+            "customer": "cus_retailer_001",
+            "amount_due": 12000,
+            "status": "open"
+          }
+        }
+      },
+      "processed": false,
+      "created_at": "2025-11-26T08:00:00Z"
+    },
+    {
+      "id": "evt_dispute_001",
+      "stripe_event_id": "evt_dispute_001",
+      "type": "charge.dispute.created",
+      "payload": {
+        "id": "evt_dispute_001",
+        "type": "charge.dispute.created",
+        "data": {
+          "object": {
+            "id": "dp_001",
+            "charge": "ch_1JqYx2CH",
+            "amount": 1999,
+            "currency": "usd",
+            "status": "needs_response",
+            "reason": "fraudulent"
+          }
+        }
+      },
+      "processed": false,
+      "created_at": "2025-11-26T10:00:00Z"
+    }
+  ],
+  "users": [
+    {
+      "id": "user_123",
+      "email": "alice@example.com",
+      "stripe_customer_id": "cus_ABC123",
+      "plan": "free",
+      "status": "active",
+      "created_at": "2025-11-01T00:00:00Z"
+    },
+    {
+      "id": "user_456",
+      "email": "bob@example.com",
+      "stripe_customer_id": "cus_DEF456",
+      "plan": "pro",
+      "status": "active",
+      "created_at": "2025-11-01T00:00:00Z"
+    },
+    {
+      "id": "retailer_user",
+      "email": "merchant@boutique.example",
+      "stripe_customer_id": "cus_retailer_001",
+      "plan": "enterprise",
+      "status": "active",
+      "connected_account_id": "acct_conn_001",
+      "created_at": "2025-11-01T00:00:00Z"
+    }
+  ],
+  "merchants": [
+    {
+      "id": "cus_retailer_001",
+      "name": "Boutique Test Co",
+      "connected_account_id": "acct_conn_001",
+      "balance_cents": 154320,
+      "pending_invoices": [
+        {
+          "id": "in_2048",
+          "amount_cents": 675,
+          "due_in_days": 30
+        }
+      ],
+      "recent_payouts": [
+        {
+          "id": "po_789",
+          "amount_cents": 150000,
+          "status": "in_transit"
+        }
+      ],
+      "created_at": "2025-11-01T00:00:00Z"
+    }
+  ],
+  "products": [
+    {
+      "id": "fit-report-pro",
+      "name": "Premium Fit Report",
+      "description": "Comprehensive fit analysis with AI-powered recommendations",
+      "price": 19.99,
+      "currency": "usd",
+      "category": "service",
+      "sku": "fit-report-pro"
+    },
+    {
+      "id": "basic-report",
+      "name": "Basic Fit Report",
+      "description": "Basic fit analysis",
+      "price": 9.99,
+      "currency": "usd",
+      "category": "service",
+      "sku": "basic-report"
+    }
+  ],
+  "prices": [
+    {
+      "id": "price_ProMonthly_001",
+      "product_id": "pro-subscription",
+      "amount_cents": 1999,
+      "currency": "usd",
+      "recurring": {
+        "interval": "month",
+        "interval_count": 1
+      },
+      "type": "recurring"
+    }
+  ],
+  "reference_slide": {
+    "url": "/mnt/data/A_presentation_slide_titled_\"The_Challenge_in_Fash.png",
+    "title": "The Challenge in Fashion Returns"
+  }
+}
+

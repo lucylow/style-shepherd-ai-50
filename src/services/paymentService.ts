@@ -3,7 +3,13 @@ import { getApiBaseUrl } from '@/lib/api-config';
 
 export interface PaymentIntent {
   clientSecret: string;
-  amount: number;
+  paymentIntentId: string;
+  returnPrediction?: {
+    score: number;
+    riskLevel: 'low' | 'medium' | 'high';
+    factors: string[];
+    suggestions: string[];
+  };
 }
 
 export interface CheckoutSession {
@@ -11,51 +17,88 @@ export interface CheckoutSession {
   url: string;
 }
 
+export interface ShippingInfo {
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  country: string;
+}
+
 class PaymentService {
   private API_BASE = getApiBaseUrl();
 
   /**
    * Create a payment intent for Stripe
-   * In production, this would call your backend API
+   * Calls the backend API to create a Stripe PaymentIntent
    */
   async createPaymentIntent(
     items: CartItem[],
-    userId: string
+    userId: string,
+    shippingInfo?: ShippingInfo
   ): Promise<PaymentIntent> {
-    const totalAmount = items.reduce(
+    // Calculate total amount (including tax and shipping if needed)
+    const subtotal = items.reduce(
       (sum, item) => sum + item.product.price * item.quantity,
       0
     );
+    
+    // For now, use subtotal as totalAmount
+    // In production, you might want to calculate tax and shipping separately
+    const totalAmount = subtotal;
 
-    // In production, this would be a real API call
-    // For demo purposes, we'll simulate it
+    // Transform CartItem[] to backend format
+    const backendItems = items.map(item => ({
+      productId: item.product.id,
+      quantity: item.quantity,
+      price: item.product.price,
+      size: item.size || 'M', // Default size if not specified
+    }));
+
     try {
+      const requestBody: any = {
+        userId,
+        items: backendItems,
+        totalAmount,
+      };
+
+      // Include shippingInfo if provided
+      if (shippingInfo) {
+        requestBody.shippingInfo = {
+          name: shippingInfo.name,
+          address: shippingInfo.address,
+          city: shippingInfo.city,
+          state: shippingInfo.state,
+          zip: shippingInfo.zipCode, // Backend expects 'zip', frontend uses 'zipCode'
+          country: shippingInfo.country,
+        };
+      }
+
       const response = await fetch(`${this.API_BASE}/payments/intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          items,
-          userId,
-          amount: Math.round(totalAmount * 100), // Convert to cents
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create payment intent');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Failed to create payment intent: ${response.statusText}`);
       }
 
       const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error('Error creating payment intent:', error);
-      // For demo: return a mock payment intent
-      // In production, this should never happen
+      
+      // Return in format expected by frontend
       return {
-        clientSecret: 'mock_client_secret_' + Date.now(),
-        amount: Math.round(totalAmount * 100),
+        clientSecret: data.clientSecret,
+        paymentIntentId: data.paymentIntentId,
+        returnPrediction: data.returnPrediction,
       };
+    } catch (error: any) {
+      console.error('Error creating payment intent:', error);
+      throw new Error(error.message || 'Failed to create payment intent. Please try again.');
     }
   }
 
@@ -67,10 +110,11 @@ class PaymentService {
     items: CartItem[],
     userId: string,
     successUrl: string,
-    cancelUrl: string
+    cancelUrl: string,
+    shippingInfo?: ShippingInfo
   ): Promise<CheckoutSession> {
     // Use payment intent for checkout session
-    const paymentIntent = await this.createPaymentIntent(items, userId);
+    const paymentIntent = await this.createPaymentIntent(items, userId, shippingInfo);
     
     // Return checkout session format compatible with frontend
     return {
@@ -80,29 +124,61 @@ class PaymentService {
   }
 
   /**
-   * Verify payment status
-   * Note: Backend doesn't have a verify endpoint, using confirm endpoint instead
+   * Confirm payment and create order
+   * This should be called after payment is confirmed on the frontend
    */
-  async verifyPayment(paymentIntentId: string): Promise<boolean> {
+  async confirmPayment(
+    paymentIntentId: string,
+    items: CartItem[],
+    userId: string,
+    shippingInfo: ShippingInfo
+  ): Promise<{ orderId: string; status: string }> {
+    const totalAmount = items.reduce(
+      (sum, item) => sum + item.product.price * item.quantity,
+      0
+    );
+
+    const backendItems = items.map(item => ({
+      productId: item.product.id,
+      quantity: item.quantity,
+      price: item.product.price,
+      size: item.size || 'M',
+    }));
+
     try {
-      // Use confirm endpoint to verify payment
       const response = await fetch(`${this.API_BASE}/payments/confirm`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ paymentIntentId }),
+        body: JSON.stringify({
+          paymentIntentId,
+          order: {
+            userId,
+            items: backendItems,
+            totalAmount,
+            shippingInfo: {
+              name: shippingInfo.name,
+              address: shippingInfo.address,
+              city: shippingInfo.city,
+              state: shippingInfo.state,
+              zip: shippingInfo.zipCode,
+              country: shippingInfo.country,
+            },
+          },
+        }),
       });
 
       if (!response.ok) {
-        return false;
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Failed to confirm payment: ${response.statusText}`);
       }
 
       const data = await response.json();
-      return data.status === 'succeeded' || data.confirmed === true;
-    } catch (error) {
-      console.error('Error verifying payment:', error);
-      return false;
+      return data;
+    } catch (error: any) {
+      console.error('Error confirming payment:', error);
+      throw new Error(error.message || 'Failed to confirm payment. Please try again.');
     }
   }
 }

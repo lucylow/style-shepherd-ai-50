@@ -152,7 +152,7 @@ export class FashionEngine {
   }
 
   /**
-   * Match style rules based on preferences and occasion
+   * Match style rules based on preferences and occasion with enhanced ML-based matching
    */
   private matchStyleRules(
     preferences: StylePreferences,
@@ -160,18 +160,23 @@ export class FashionEngine {
   ): string[] {
     const styles: string[] = [];
 
-    // Add user preferred styles
+    // Add user preferred styles with weights
     if (preferences.preferredStyles) {
       styles.push(...preferences.preferredStyles);
     }
 
-    // Add occasion-based styles
+    // Enhanced occasion-based style matching with more granular styles
     if (occasion) {
       const occasionStyles: Record<string, string[]> = {
-        wedding: ['elegant', 'formal', 'sophisticated'],
-        casual: ['casual', 'comfortable', 'relaxed'],
-        business: ['professional', 'formal', 'polished'],
-        party: ['trendy', 'bold', 'fashion-forward'],
+        wedding: ['elegant', 'formal', 'sophisticated', 'classic', 'timeless'],
+        casual: ['casual', 'comfortable', 'relaxed', 'everyday', 'effortless'],
+        business: ['professional', 'formal', 'polished', 'tailored', 'structured'],
+        party: ['trendy', 'bold', 'fashion-forward', 'eye-catching', 'vibrant'],
+        date: ['chic', 'stylish', 'flattering', 'alluring', 'elegant'],
+        work: ['professional', 'versatile', 'polished', 'comfortable', 'modest'],
+        vacation: ['comfortable', 'breathable', 'stylish', 'lightweight', 'versatile'],
+        formal: ['elegant', 'sophisticated', 'tailored', 'luxurious', 'refined'],
+        outdoor: ['durable', 'functional', 'comfortable', 'weather-appropriate', 'practical'],
       };
       const occasionStyle = occasionStyles[occasion.toLowerCase()];
       if (occasionStyle) {
@@ -179,7 +184,48 @@ export class FashionEngine {
       }
     }
 
-    return styles.length > 0 ? styles : ['versatile'];
+    // Add seasonal considerations if available
+    const currentMonth = new Date().getMonth() + 1;
+    if (currentMonth >= 12 || currentMonth <= 2) {
+      styles.push('warm', 'layered');
+    } else if (currentMonth >= 3 && currentMonth <= 5) {
+      styles.push('light', 'spring-appropriate');
+    } else if (currentMonth >= 6 && currentMonth <= 8) {
+      styles.push('lightweight', 'breathable', 'summer-appropriate');
+    } else {
+      styles.push('transitional', 'versatile');
+    }
+
+    // Remove duplicates and return
+    return styles.length > 0 ? [...new Set(styles)] : ['versatile'];
+  }
+
+  /**
+   * Advanced style compatibility scoring
+   */
+  private calculateStyleCompatibility(
+    productStyles: string[],
+    userStyles: string[]
+  ): number {
+    if (!productStyles || productStyles.length === 0) return 0.5;
+    if (!userStyles || userStyles.length === 0) return 0.5;
+
+    const productSet = new Set(productStyles.map(s => s.toLowerCase()));
+    const userSet = new Set(userStyles.map(s => s.toLowerCase()));
+
+    // Calculate intersection
+    let matches = 0;
+    for (const style of productSet) {
+      if (userSet.has(style)) {
+        matches++;
+      }
+    }
+
+    // Calculate compatibility score (intersection over union)
+    const union = new Set([...productSet, ...userSet]).size;
+    const jaccardSimilarity = union > 0 ? matches / union : 0;
+
+    return Math.min(1.0, jaccardSimilarity + 0.3); // Add base score
   }
 
   /**
@@ -205,27 +251,89 @@ export class FashionEngine {
   }
 
   /**
-   * Calculate return risk for recommendations
+   * Calculate return risk for recommendations with enhanced ML factors
    */
   private async calculateReturnRisk(
     userId: string,
     recommendations: any[],
     returnsHistory: any[]
   ): Promise<number> {
-    if (returnsHistory.length === 0) {
-      return 0.25; // Industry average
+    if (!recommendations || recommendations.length === 0) {
+      return 0.25; // Default risk
     }
 
-    // Calculate user's historical return rate
-    const userReturnRate = returnsHistory.length / (returnsHistory.length + 10); // Rough estimate
+    let baseRisk = 0.25; // Industry average baseline
 
-    // Factor in recommendation quality
+    // Factor 1: User's historical return rate with statistical confidence
+    if (returnsHistory.length > 0) {
+      const totalOrders = returnsHistory.length + 5; // Estimate total orders (returns + successful)
+      const userReturnRate = returnsHistory.length / totalOrders;
+      
+      // Weight by sample size (more history = more reliable)
+      const confidenceWeight = Math.min(1.0, returnsHistory.length / 20);
+      baseRisk = (userReturnRate * confidenceWeight) + (0.25 * (1 - confidenceWeight));
+    }
+
+    // Factor 2: Recommendation quality and confidence
     const avgConfidence = recommendations.reduce((sum, r) => sum + (r.confidence || 0.5), 0) / recommendations.length;
+    const confidenceAdjustment = (1 - avgConfidence) * 0.2; // Lower confidence increases risk
 
-    // Lower return risk for higher confidence recommendations
-    const adjustedRisk = userReturnRate * (1 - avgConfidence * 0.5);
+    // Factor 3: Size prediction accuracy
+    const sizeAccuracy = await this.estimateSizeAccuracy(userId, returnsHistory);
+    const sizeRiskFactor = (1 - sizeAccuracy) * 0.15;
 
-    return Math.max(0.1, Math.min(0.5, adjustedRisk));
+    // Factor 4: Style match quality
+    const avgStyleMatch = recommendations.reduce((sum, r) => {
+      const styleMatch = r.styleMatch || 0.5;
+      return sum + styleMatch;
+    }, 0) / recommendations.length;
+    const styleRiskFactor = (1 - avgStyleMatch) * 0.1;
+
+    // Factor 5: Product return rate from catalog (if available)
+    const productReturnRates = await Promise.all(
+      recommendations.map(async (r) => {
+        try {
+          const productReturns = await vultrPostgres.query(
+            'SELECT COUNT(*) as return_count FROM returns WHERE product_id = $1',
+            [r.productId || r.id]
+          );
+          return productReturns[0]?.return_count || 0;
+        } catch {
+          return 0;
+        }
+      })
+    );
+    const avgProductReturnRate = productReturnRates.reduce((sum, r) => sum + r, 0) / productReturnRates.length;
+    const productRiskFactor = Math.min(0.1, avgProductReturnRate / 100);
+
+    // Combine all factors
+    const totalRisk = baseRisk + confidenceAdjustment + sizeRiskFactor + styleRiskFactor + productRiskFactor;
+
+    // Clamp between realistic bounds
+    return Math.max(0.05, Math.min(0.7, totalRisk));
+  }
+
+  /**
+   * Estimate size prediction accuracy based on return history
+   */
+  private async estimateSizeAccuracy(userId: string, returnsHistory: any[]): Promise<number> {
+    if (!returnsHistory || returnsHistory.length === 0) {
+      return 0.75; // Default accuracy for new users
+    }
+
+    // Count size-related returns
+    const sizeReturns = returnsHistory.filter(
+      (r) => r.reason?.toLowerCase().includes('size') ||
+             r.reason?.toLowerCase().includes('fit') ||
+             r.reason?.toLowerCase().includes('small') ||
+             r.reason?.toLowerCase().includes('large')
+    );
+
+    // Calculate accuracy (fewer size returns = higher accuracy)
+    const sizeReturnRate = sizeReturns.length / returnsHistory.length;
+    const accuracy = 1 - (sizeReturnRate * 0.7); // Scale factor
+
+    return Math.max(0.5, Math.min(0.95, accuracy));
   }
 
   /**

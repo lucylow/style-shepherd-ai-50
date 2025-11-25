@@ -132,13 +132,14 @@ export class ProductRecommendationAPI {
   }
 
   /**
-   * Fallback recommendation logic using PostgreSQL
+   * Fallback recommendation logic using PostgreSQL with enhanced scoring
    */
   private async getFallbackRecommendations(
     userPreferences: UserPreferences,
     context: RecommendationContext
   ): Promise<RecommendationResult[]> {
     try {
+      // Enhanced query with better scoring algorithm
       const query = `
         SELECT 
           id as "productId",
@@ -147,44 +148,87 @@ export class ProductRecommendationAPI {
           category,
           brand,
           color,
+          COALESCE(style, '') as style,
           rating,
           reviews_count,
-          CASE 
-            WHEN $1::text[] IS NOT NULL AND color = ANY($1::text[]) THEN 0.3
-            ELSE 0.1
-          END +
-          CASE 
-            WHEN $2::text[] IS NOT NULL AND brand = ANY($2::text[]) THEN 0.2
-            ELSE 0.05
-          END +
-          CASE 
-            WHEN rating >= 4.0 THEN 0.2
-            WHEN rating >= 3.0 THEN 0.1
-            ELSE 0.05
-          END as score
+          stock,
+          (
+            -- Color match (30% weight)
+            CASE 
+              WHEN $1::text[] IS NOT NULL AND color = ANY($1::text[]) THEN 0.3
+              WHEN $1::text[] IS NOT NULL AND LOWER(color) = ANY(SELECT LOWER(unnest($1::text[]))) THEN 0.25
+              ELSE 0.05
+            END +
+            -- Brand match (20% weight)
+            CASE 
+              WHEN $2::text[] IS NOT NULL AND brand = ANY($2::text[]) THEN 0.2
+              WHEN $2::text[] IS NOT NULL AND LOWER(brand) = ANY(SELECT LOWER(unnest($2::text[]))) THEN 0.15
+              ELSE 0.05
+            END +
+            -- Rating score (25% weight)
+            CASE 
+              WHEN rating >= 4.5 THEN 0.25
+              WHEN rating >= 4.0 THEN 0.2
+              WHEN rating >= 3.5 THEN 0.15
+              WHEN rating >= 3.0 THEN 0.1
+              ELSE 0.05
+            END +
+            -- Review count bonus (10% weight) - more reviews = more trusted
+            CASE 
+              WHEN reviews_count >= 100 THEN 0.1
+              WHEN reviews_count >= 50 THEN 0.08
+              WHEN reviews_count >= 20 THEN 0.05
+              ELSE 0.02
+            END +
+            -- Price value score (10% weight) - better value = higher score
+            CASE 
+              WHEN $3::numeric IS NOT NULL AND price <= $3::numeric * 0.7 THEN 0.1
+              WHEN $3::numeric IS NOT NULL AND price <= $3::numeric THEN 0.08
+              WHEN $3::numeric IS NOT NULL AND price <= $3::numeric * 1.2 THEN 0.05
+              ELSE 0.02
+            END +
+            -- Stock availability (5% weight)
+            CASE 
+              WHEN stock >= 10 THEN 0.05
+              WHEN stock >= 5 THEN 0.03
+              WHEN stock > 0 THEN 0.01
+              ELSE 0
+            END
+          ) as score
         FROM catalog
         WHERE 
-          ($3::numeric IS NULL OR price <= $3::numeric)
-          AND stock > 0
-        ORDER BY score DESC, rating DESC
-        LIMIT 20
+          stock > 0
+          AND ($3::numeric IS NULL OR price <= $3::numeric * 1.2)
+        ORDER BY score DESC, rating DESC, reviews_count DESC
+        LIMIT 50
       `;
 
       const results = await vultrPostgres.query<{
         productId: string;
         score: number;
+        name?: string;
+        price?: number;
+        category?: string;
+        brand?: string;
+        color?: string;
+        style?: string;
+        rating?: number;
+        reviews_count?: number;
       }>(query, [
         userPreferences.favoriteColors || null,
         userPreferences.preferredBrands || null,
         context.budget || null,
       ]);
 
-      return results.map((r) => ({
+      // Apply diversity filtering to avoid too many similar items
+      const diversified = this.applyDiversityFilter(results, 20);
+
+      return diversified.map((r) => ({
         productId: r.productId,
-        score: r.score,
-        confidence: 0.7,
-        reasons: ['Based on your preferences and product ratings'],
-        returnRisk: 0.25, // Default risk
+        score: Math.min(1.0, r.score), // Normalize score
+        confidence: this.calculateConfidence(r),
+        reasons: this.generateReasons(r, userPreferences),
+        returnRisk: this.estimateReturnRisk(r),
       }));
     } catch (error: any) {
       if (error instanceof DatabaseError) {
@@ -195,6 +239,136 @@ export class ProductRecommendationAPI {
       console.error('Fallback recommendations failed:', error);
       return [];
     }
+  }
+
+  /**
+   * Apply diversity filter to recommendations
+   */
+  private applyDiversityFilter<T extends { productId: string; category?: string; brand?: string; color?: string }>(
+    results: T[],
+    limit: number
+  ): T[] {
+    const selected: T[] = [];
+    const usedCategories = new Set<string>();
+    const usedBrands = new Set<string>();
+    const usedColors = new Set<string>();
+
+    for (const result of results) {
+      if (selected.length >= limit) break;
+
+      const category = result.category?.toLowerCase() || '';
+      const brand = result.brand?.toLowerCase() || '';
+      const color = result.color?.toLowerCase() || '';
+
+      // Allow some duplicates but encourage diversity
+      const categoryPenalty = usedCategories.has(category) ? 0.1 : 0;
+      const brandPenalty = usedBrands.has(brand) ? 0.05 : 0;
+      const colorPenalty = usedColors.has(color) ? 0.05 : 0;
+
+      // Skip if too many duplicates already
+      if (categoryPenalty + brandPenalty + colorPenalty > 0.15 && selected.length > 5) {
+        continue;
+      }
+
+      selected.push(result);
+      if (category) usedCategories.add(category);
+      if (brand) usedBrands.add(brand);
+      if (color) usedColors.add(color);
+    }
+
+    return selected;
+  }
+
+  /**
+   * Calculate confidence score based on product attributes
+   */
+  private calculateConfidence(product: {
+    rating?: number;
+    reviews_count?: number;
+    score?: number;
+  }): number {
+    let confidence = 0.5; // Base confidence
+
+    // Rating confidence
+    if (product.rating) {
+      confidence += (product.rating / 5) * 0.2;
+    }
+
+    // Review count confidence (more reviews = higher confidence)
+    if (product.reviews_count) {
+      const reviewConfidence = Math.min(0.2, (product.reviews_count / 100) * 0.2);
+      confidence += reviewConfidence;
+    }
+
+    // Score confidence
+    if (product.score) {
+      confidence += product.score * 0.1;
+    }
+
+    return Math.min(0.95, confidence);
+  }
+
+  /**
+   * Generate human-readable reasons for recommendation
+   */
+  private generateReasons(
+    product: {
+      color?: string;
+      brand?: string;
+      rating?: number;
+      price?: number;
+      category?: string;
+    },
+    preferences: UserPreferences
+  ): string[] {
+    const reasons: string[] = [];
+
+    if (product.color && preferences.favoriteColors?.includes(product.color)) {
+      reasons.push(`Matches your preferred color: ${product.color}`);
+    }
+
+    if (product.brand && preferences.preferredBrands?.includes(product.brand)) {
+      reasons.push(`From your favorite brand: ${product.brand}`);
+    }
+
+    if (product.rating && product.rating >= 4.0) {
+      reasons.push(`Highly rated (${product.rating.toFixed(1)}/5.0)`);
+    }
+
+    if (product.price && preferences.bodyMeasurements) {
+      reasons.push('Good value for money');
+    }
+
+    return reasons.length > 0 ? reasons : ['Recommended based on preferences'];
+  }
+
+  /**
+   * Estimate return risk for a product
+   */
+  private estimateReturnRisk(product: {
+    rating?: number;
+    reviews_count?: number;
+    score?: number;
+  }): number {
+    let risk = 0.25; // Base risk
+
+    // Lower rating = higher risk
+    if (product.rating) {
+      if (product.rating < 3.0) {
+        risk += 0.15;
+      } else if (product.rating < 3.5) {
+        risk += 0.1;
+      } else if (product.rating >= 4.5) {
+        risk -= 0.1;
+      }
+    }
+
+    // Fewer reviews = higher uncertainty = slightly higher risk
+    if (product.reviews_count && product.reviews_count < 10) {
+      risk += 0.05;
+    }
+
+    return Math.max(0.1, Math.min(0.6, risk));
   }
 
   /**
@@ -301,6 +475,138 @@ export class ProductRecommendationAPI {
       // For size prediction, return default on error (graceful degradation)
       console.warn('Size prediction error, using default:', error);
       return { recommendedSize: 'M', confidence: 0.5 };
+    }
+  }
+
+  /**
+   * Batch get recommendations for multiple users (optimized for performance)
+   */
+  async batchGetRecommendations(
+    requests: Array<{ userPreferences: UserPreferences; context: RecommendationContext; userId?: string }>
+  ): Promise<RecommendationResult[][]> {
+    // Process in parallel with concurrency limit
+    const BATCH_SIZE = 10;
+    const results: RecommendationResult[][] = [];
+
+    for (let i = 0; i < requests.length; i += BATCH_SIZE) {
+      const batch = requests.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map((req) => this.getRecommendations(req.userPreferences, req.context))
+      );
+      results.push(...batchResults);
+    }
+
+    return results;
+  }
+
+  /**
+   * Record user feedback for recommendations (for continuous learning)
+   */
+  async recordFeedback(
+    userId: string,
+    productId: string,
+    feedback: {
+      type: 'view' | 'click' | 'purchase' | 'skip' | 'dismiss';
+      recommendationId?: string;
+      timestamp?: Date;
+    }
+  ): Promise<void> {
+    try {
+      // Store feedback in database for ML model training
+      await vultrPostgres.query(
+        `INSERT INTO recommendation_feedback 
+         (user_id, product_id, feedback_type, recommendation_id, created_at)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          userId,
+          productId,
+          feedback.type,
+          feedback.recommendationId || null,
+          feedback.timestamp || new Date(),
+        ]
+      );
+
+      // Note: Cache invalidation would be implemented with proper cache key tracking
+      // For now, cache will expire naturally based on TTL
+    } catch (error) {
+      console.error('Failed to record feedback:', error);
+      // Non-critical, don't throw
+    }
+  }
+
+  /**
+   * Get personalized recommendations with learning from past interactions
+   */
+  async getRecommendationsWithLearning(
+    userPreferences: UserPreferences,
+    context: RecommendationContext,
+    userId?: string
+  ): Promise<RecommendationResult[]> {
+    // Get base recommendations
+    const recommendations = await this.getRecommendations(userPreferences, context);
+
+    if (!userId) {
+      return recommendations;
+    }
+
+      // Enhance with learning from user's past interactions
+      try {
+        // First check if table exists, if not return base recommendations
+        let userInteractions: any[] = [];
+        try {
+          userInteractions = await vultrPostgres.query(
+            `SELECT product_id, feedback_type, COUNT(*) as interaction_count
+             FROM recommendation_feedback
+             WHERE user_id = $1
+             GROUP BY product_id, feedback_type`,
+            [userId]
+          );
+        } catch (tableError: any) {
+          // Table might not exist yet, that's okay
+          if (!tableError.message?.includes('does not exist')) {
+            throw tableError;
+          }
+          console.log('recommendation_feedback table not found, using base recommendations');
+        }
+
+      // Boost scores for products with positive feedback
+      const positiveProducts = new Set(
+        userInteractions
+          .filter((i: any) => i.feedback_type === 'purchase' || i.feedback_type === 'click')
+          .map((i: any) => i.product_id)
+      );
+
+      // Lower scores for products with negative feedback
+      const negativeProducts = new Set(
+        userInteractions
+          .filter((i: any) => i.feedback_type === 'skip' || i.feedback_type === 'dismiss')
+          .map((i: any) => i.product_id)
+      );
+
+      // Apply learning adjustments
+      return recommendations.map((rec) => {
+        let adjustedScore = rec.score;
+        
+        if (positiveProducts.has(rec.productId)) {
+          adjustedScore *= 1.2; // Boost positive products
+        }
+        
+        if (negativeProducts.has(rec.productId)) {
+          adjustedScore *= 0.7; // Reduce negative products
+        }
+
+        return {
+          ...rec,
+          score: Math.min(1.0, adjustedScore),
+          reasons: [
+            ...rec.reasons,
+            ...(positiveProducts.has(rec.productId) ? ['Based on your past positive interactions'] : []),
+          ],
+        };
+      }).sort((a, b) => b.score - a.score); // Re-sort by adjusted score
+    } catch (error) {
+      console.error('Failed to apply learning, returning base recommendations:', error);
+      return recommendations;
     }
   }
 }

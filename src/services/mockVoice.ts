@@ -1,5 +1,5 @@
 import { VoiceResponse } from '@/types/fashion';
-import { mockProductService } from './mockProducts';
+import { productService } from './productService';
 import { fashionAIEngine } from './fashionAIEngine';
 import { mockAuth } from './mockAuth';
 
@@ -40,7 +40,7 @@ class MockVoiceService {
     const intent = this.parseIntent(transcription);
     
     // Get relevant products
-    const products = await mockProductService.searchProducts({
+    const products = await productService.searchProducts({
       query: intent.keywords.join(' '),
       maxPrice: intent.maxPrice,
     });

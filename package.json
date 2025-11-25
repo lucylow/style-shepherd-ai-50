@@ -8,7 +8,9 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "mock:server": "json-server --watch mocks/db.json --port 4000 --host 0.0.0.0",
+    "mock:dev": "npm run mock:server"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -44,6 +46,7 @@
     "@supabase/supabase-js": "^2.81.1",
     "@tanstack/react-query": "^5.83.0",
     "@workos-inc/authkit-react": "^0.13.0",
+    "axios": "^1.13.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

@@ -1,0 +1,329 @@
+{
+  "reference_slide_url": "/mnt/data/A_presentation_slide_titled_\"The_Challenge_in_Fash.png",
+  "agents": [
+    {
+      "agent_id": "agent_rachel",
+      "display_name": "Rachel",
+      "voice_id": "rachel_v1",
+      "language": "en-US",
+      "gender": "female",
+      "persona": "Warm, professional voice suited for onboarding and help flows. Calm and reassuring.",
+      "style_tags": ["helpful", "warm", "concise"],
+      "stability": 0.45,
+      "similarity_boost": 0.7,
+      "default_speed": 1.0,
+      "default_pitch": 0,
+      "fallback_order": ["browser_tts", "pyttsx3", "elevenlabs"],
+      "sample_phrases": [
+        "Hi — I'm Rachel, your Style Shepherd assistant. How can I help you today?",
+        "Based on your measurements, I recommend a size Medium for this brand.",
+        "Would you like me to add this to your cart or show alternatives?"
+      ],
+      "capabilities": ["size_recommendation", "product_browsing", "add_to_cart", "explain_reasoning"]
+    },
+    {
+      "agent_id": "agent_liam",
+      "display_name": "Liam",
+      "voice_id": "liam_v2",
+      "language": "en-GB",
+      "gender": "male",
+      "persona": "Confident, concise. Good for B2B merchant conversations and onboarding merchants.",
+      "style_tags": ["confident", "business"],
+      "stability": 0.6,
+      "similarity_boost": 0.5,
+      "default_speed": 0.96,
+      "default_pitch": -1,
+      "fallback_order": ["browser_tts", "coqui", "elevenlabs"],
+      "sample_phrases": [
+        "Welcome to the merchant console. I can help you set up pilot metrics.",
+        "Your pilot shows a 18% improvement in return probability for orders in week 1."
+      ],
+      "capabilities": ["merchant_onboarding", "pilot_reporting", "invoice_explain"]
+    },
+    {
+      "agent_id": "agent_ava",
+      "display_name": "Ava",
+      "voice_id": "ava_v1",
+      "language": "en-US",
+      "gender": "female",
+      "persona": "Playful and fashionable — for trend discovery and styling suggestions.",
+      "style_tags": ["playful", "fashion-forward"],
+      "stability": 0.35,
+      "similarity_boost": 0.6,
+      "default_speed": 1.05,
+      "default_pitch": 1,
+      "fallback_order": ["browser_tts", "coqui", "elevenlabs"],
+      "sample_phrases": [
+        "Oooh — linen is trending this season. I can show you similar dresses.",
+        "Try this look: a sage dress with neutral accessories — would you like to see matches?"
+      ],
+      "capabilities": ["trend_recommendation", "visual_search", "style_board"]
+    },
+    {
+      "agent_id": "agent_noah",
+      "display_name": "Noah",
+      "voice_id": "noah_v3",
+      "language": "en-US",
+      "gender": "male",
+      "persona": "Direct technical assistant for recommendations and model transparency.",
+      "style_tags": ["technical", "transparent"],
+      "stability": 0.7,
+      "similarity_boost": 0.4,
+      "default_speed": 0.94,
+      "default_pitch": -0.5,
+      "fallback_order": ["browser_tts", "pyttsx3", "elevenlabs"],
+      "sample_phrases": [
+        "Model confidence for size M is 92%. This number is computed from brand-specific fit matrices.",
+        "I can show you the features that influenced this prediction: chest, waist, and inseam."
+      ],
+      "capabilities": ["model_explainability", "debug_info", "metrics"]
+    },
+    {
+      "agent_id": "agent_emma",
+      "display_name": "Emma",
+      "voice_id": "emma_v1",
+      "language": "en-AU",
+      "gender": "female",
+      "persona": "Friendly voice for casual shoppers. Emphasizes sustainability and fabric care.",
+      "style_tags": ["friendly", "sustainability"],
+      "stability": 0.4,
+      "similarity_boost": 0.6,
+      "default_speed": 1.0,
+      "default_pitch": 0,
+      "fallback_order": ["browser_tts", "coqui", "elevenlabs"],
+      "sample_phrases": [
+        "This piece is made of recycled denim — washing instructions are gentle cycle cold wash.",
+        "Choosing sustainable fabrics reduces environmental impact — I can filter for those."
+      ],
+      "capabilities": ["fabric_advice", "eco_badge_explain", "filtering"]
+    },
+    {
+      "agent_id": "agent_oliver",
+      "display_name": "Oliver",
+      "voice_id": "oliver_v2",
+      "language": "en-US",
+      "gender": "male",
+      "persona": "Concise checkout assistant; ideal for purchase confirmation & payment flows.",
+      "style_tags": ["transactional", "concise"],
+      "stability": 0.8,
+      "similarity_boost": 0.3,
+      "default_speed": 0.9,
+      "default_pitch": -0.7,
+      "fallback_order": ["browser_tts", "pyttsx3", "elevenlabs"],
+      "sample_phrases": [
+        "Your payment was successful. Receipt sent to alice@example.com.",
+        "I added the item to your cart. Checkout when ready."
+      ],
+      "capabilities": ["checkout_flow", "order_confirmation", "payment_reminders"]
+    },
+    {
+      "agent_id": "agent_sophia",
+      "display_name": "Sophia",
+      "voice_id": "sophia_v1",
+      "language": "en-US",
+      "gender": "female",
+      "persona": "Empathetic returns agent that guides users through guarantee/refund flows.",
+      "style_tags": ["empathetic", "customer-support"],
+      "stability": 0.5,
+      "similarity_boost": 0.65,
+      "default_speed": 1.0,
+      "default_pitch": 0,
+      "fallback_order": ["browser_tts", "coqui", "elevenlabs"],
+      "sample_phrases": [
+        "I'm sorry that didn't work out — I can start your return and explain next steps.",
+        "Your fit guarantee covers this return; you'll receive a credit in 3–5 business days."
+      ],
+      "capabilities": ["return_flow", "refund_processing", "guarantee_explain"]
+    },
+    {
+      "agent_id": "agent_elijah",
+      "display_name": "Elijah",
+      "voice_id": "elijah_v1",
+      "language": "en-US",
+      "gender": "male",
+      "persona": "Data-savvy assistant for merchant analytics and payout explanations.",
+      "style_tags": ["analytics", "merchant"],
+      "stability": 0.65,
+      "similarity_boost": 0.45,
+      "default_speed": 0.95,
+      "default_pitch": -0.3,
+      "fallback_order": ["browser_tts", "pyttsx3", "elevenlabs"],
+      "sample_phrases": [
+        "Your merchant dashboard shows a 12% decrease in returns since enabling Style Shepherd recommendations.",
+        "Projected prevented-return revenue this month is $14,500."
+      ],
+      "capabilities": ["merchant_analytics", "payout_reconciliation", "report_generation"]
+    },
+    {
+      "agent_id": "agent_isabella",
+      "display_name": "Isabella",
+      "voice_id": "isabella_v3",
+      "language": "en-US",
+      "gender": "female",
+      "persona": "Concierge voice for VIP users: warm, slightly formal, personalized.",
+      "style_tags": ["concierge", "premium"],
+      "stability": 0.3,
+      "similarity_boost": 0.85,
+      "default_speed": 1.02,
+      "default_pitch": 0.6,
+      "fallback_order": ["browser_tts", "coqui", "elevenlabs"],
+      "sample_phrases": [
+        "Good evening — I prepared a curated edit based on your last purchases and preferences.",
+        "As a VIP, you have an expedited returns guarantee and priority stylist sessions."
+      ],
+      "capabilities": ["personal_concierge", "vip_offers", "personalized_edits"]
+    },
+    {
+      "agent_id": "agent_mason",
+      "display_name": "Mason",
+      "voice_id": "mason_v2",
+      "language": "en-US",
+      "gender": "male",
+      "persona": "Low-latency micro-utterance voice for short confirmations and quick responses.",
+      "style_tags": ["short", "confirmations"],
+      "stability": 0.9,
+      "similarity_boost": 0.2,
+      "default_speed": 0.98,
+      "default_pitch": -0.2,
+      "fallback_order": ["browser_tts", "pyttsx3", "elevenlabs"],
+      "sample_phrases": [
+        "Added.",
+        "Saved.",
+        "Done — check your cart."
+      ],
+      "capabilities": ["short_confirm", "status_ack"]
+    },
+    {
+      "agent_id": "agent_grace",
+      "display_name": "Grace",
+      "voice_id": "grace_v1",
+      "language": "en-US",
+      "gender": "female",
+      "persona": "Instructive voice for tutorials, onboarding, and safety/privacy messages.",
+      "style_tags": ["instructive", "clear"],
+      "stability": 0.55,
+      "similarity_boost": 0.5,
+      "default_speed": 0.9,
+      "default_pitch": 0,
+      "fallback_order": ["browser_tts", "coqui", "elevenlabs"],
+      "sample_phrases": [
+        "To improve recommendations, you can upload a single full-body photo with normal lighting.",
+        "We store only hashed measurements and ephemeral photos for the duration of the session."
+      ],
+      "capabilities": ["onboarding", "privacy_notice", "tutorials"]
+    }
+  ],
+  "conversations": [
+    {
+      "session_id": "sess_demo_001",
+      "agent_id": "agent_rachel",
+      "turns": [
+        { "speaker": "user", "text": "Hey, what's my best size for these jeans?", "ts": "2025-11-25T18:10:00Z" },
+        { "speaker": "agent", "text": "Based on your saved measurements (5'8\", 68kg), I recommend size M for most denim brands. Confidence 92%. Would you like to see three slim options?", "ts": "2025-11-25T18:10:02Z" },
+        { "speaker": "user", "text": "Yes, show me the top pick.", "ts": "2025-11-25T18:10:12Z" },
+        { "speaker": "agent", "text": "Showing Indigo Stretch Slim Jeans — size M. Add to cart or see alternatives?", "ts": "2025-11-25T18:10:14Z", "actions": ["show_product:jeans-101", "suggest_alternatives"] }
+      ]
+    },
+    {
+      "session_id": "sess_demo_merchant_001",
+      "agent_id": "agent_liam",
+      "turns": [
+        { "speaker": "merchant", "text": "What was the return rate change last week for my denim category?", "ts": "2025-11-25T19:00:00Z" },
+        { "speaker": "agent", "text": "Your denim return rate dropped from 28% to 18% after enabling size recommendations. Estimated monthly savings: $8,400.", "ts": "2025-11-25T19:00:02Z" },
+        { "speaker": "merchant", "text": "Great. Generate an invoice for the pilot commission.", "ts": "2025-11-25T19:00:10Z" },
+        { "speaker": "agent", "text": "Creating invoice for $1,260 (15% of estimated savings). Shall I send it to finance@boutique.example?", "ts": "2025-11-25T19:00:12Z", "actions": ["create_invoice:pilot_summer_01"] }
+      ]
+    },
+    {
+      "session_id": "sess_demo_trend_001",
+      "agent_id": "agent_ava",
+      "turns": [
+        { "speaker": "user", "text": "Show trending summer dresses now.", "ts": "2025-11-25T17:12:10Z" },
+        { "speaker": "agent", "text": "Floral maxi and linen minis are trending. I can curate a board — would you like pastel or bold palettes?", "ts": "2025-11-25T17:12:12Z", "actions": ["show_trend_board:summer_dresses"] },
+        { "speaker": "user", "text": "Pastel please.", "ts": "2025-11-25T17:12:18Z" },
+        { "speaker": "agent", "text": "Curating pastel summer dresses now — sending three picks to your screen.", "ts": "2025-11-25T17:12:20Z", "actions": ["present_items:3"] }
+      ]
+    },
+    {
+      "session_id": "sess_demo_vip_001",
+      "agent_id": "agent_isabella",
+      "turns": [
+        {"speaker": "user", "text": "Prepare my VIP edit for the weekend.", "ts": "2025-11-25T20:00:00Z"},
+        {"speaker": "agent", "text": "Of course. I selected 6 items aligned to past purchases and trending looks. I'll prioritize expedited shipping for any pick you choose.", "ts": "2025-11-25T20:00:02Z", "actions":["open_vip_editor"]}
+      ]
+    }
+  ],
+  "elevenlabs_api_templates": {
+    "tts_request_json": {
+      "url_template": "POST https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+      "headers": {
+        "xi-api-key": "<ELEVENLABS_API_KEY>",
+        "Content-Type": "application/json"
+      },
+      "body_example": {
+        "text": "Your best size is Medium — confidence 92%. Would you like me to add it to your cart?",
+        "voice_settings": { "stability": 0.5, "similarity_boost": 0.7 }
+      }
+    },
+    "streaming_request_json": {
+      "url_template": "wss://api.elevenlabs.io/v1/streaming?voice={voice_id}",
+      "notes": "Send small binary audio chunks (16 kHz / 16-bit) or PCM frames per ElevenLabs streaming docs."
+    }
+  },
+  "fallback_strategy": {
+    "priority": [
+      { "name": "browser_webspeech", "type": "client", "notes": "Use SpeechSynthesisUtterance; instant no-key fallback" },
+      { "name": "pyttsx3_local", "type": "server", "notes": "Lightweight offline TTS; good for demos" },
+      { "name": "coqui_local", "type": "server", "notes": "High-quality OSS models; heavy to host" },
+      { "name": "elevenlabs", "type": "external", "notes": "High-quality commercial TTS; use if ELEVENLABS_API_KEY present" }
+    ],
+    "selection_logic": "Try client first. If client fails or user requested premium voice, call server endpoint /api/tts which attempts pyttsx3/coqui then optionally ElevenLabs if key present."
+  },
+  "usage_and_billing_mock": {
+    "agent_usage_examples": [
+      { "agent_id": "agent_rachel", "monthly_calls": 14200, "avg_duration_sec": 4.2, "estimated_tts_cost_usd": 18.40 },
+      { "agent_id": "agent_ava", "monthly_calls": 8200, "avg_duration_sec": 6.1, "estimated_tts_cost_usd": 27.30 }
+    ],
+    "quota": { "free_tier_calls": 1000, "premium_tier_calls": 100000, "notes": "Use quotas to show judges how you control cost." }
+  },
+  "agent_configuration_examples": [
+    {
+      "agent_id": "agent_rachel",
+      "dialog_config": {
+        "max_turns_before_summary": 6,
+        "should_ask_size_confirmation": true,
+        "auto_add_to_cart_after_confirmation": false,
+        "voice_properties": { "voice_id": "rachel_v1", "stability": 0.45, "similarity_boost": 0.7 }
+      }
+    },
+    {
+      "agent_id": "agent_liam",
+      "dialog_config": {
+        "max_turns_before_summary": 10,
+        "auto_create_invoice_on_confirm": true,
+        "voice_properties": { "voice_id": "liam_v2", "stability": 0.6, "similarity_boost": 0.5 }
+      }
+    }
+  ],
+  "test_integration_snippets": {
+    "playback_test": {
+      "description": "Confirm TTS pipeline end-to-end for an agent",
+      "steps": [
+        "POST /api/assistant { session_id, agent_id, text }",
+        "Backend returns { tts_url or audio_blob or fallback:browser }",
+        "If audio_blob returned, frontend plays audio; if tts_url returned, fetch and play; if fallback:browser, use Web Speech API."
+      ]
+    },
+    "mock_webhook_event": {
+      "description": "Simulate an audio-generation complete webhook",
+      "payload_example": {
+        "event": "tts.generated",
+        "agent_id": "agent_rachel",
+        "session_id": "sess_demo_001",
+        "audio_url": "/mock_audio/agent_rachel/sess_demo_001_001.wav",
+        "duration_ms": 1420
+      }
+    }
+  }
+}
+

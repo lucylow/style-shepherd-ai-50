@@ -40,7 +40,11 @@ app.use(
   })
 );
 
-// Body parsing
+// Body parsing - IMPORTANT: Stripe webhooks need raw body for signature verification
+// We need to handle webhook route separately with raw body, then use JSON for other routes
+app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
+
+// Body parsing for all other routes
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 

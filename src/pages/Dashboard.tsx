@@ -1,35 +1,64 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Search, Filter, Grid3X3, ShoppingBag, Sparkles, Home } from 'lucide-react';
+import { Search, Filter, Grid3X3, ShoppingBag, Sparkles, Home, Heart, GitCompare } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ProductCard } from '@/components/ProductCard';
 import { VoiceInterface } from '@/components/VoiceInterface';
 import { ShoppingCart } from '@/components/ShoppingCart';
+import { ProductFilters, FilterOptions } from '@/components/ProductFilters';
+import { ProductQuickView } from '@/components/ProductQuickView';
+import { ImageLightbox } from '@/components/ImageLightbox';
+import { SearchSuggestions } from '@/components/SearchSuggestions';
+import { ProductComparison } from '@/components/ProductComparison';
+import { Wishlist } from '@/components/Wishlist';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import { CartItem, Product, VoiceResponse } from '@/types/fashion';
 import { useAuth } from '@/contexts/AuthContext';
 import { mockProductService } from '@/services/mockProducts';
 import { mockCartService } from '@/services/mockCart';
+import { toast } from 'sonner';
 
 const Dashboard = () => {
   const [products, setProducts] = useState<Product[]>([]);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [recommendations, setRecommendations] = useState<Product[]>([]);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [wishlistItems, setWishlistItems] = useState<Product[]>([]);
+  const [comparisonProducts, setComparisonProducts] = useState<Product[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isWishlistOpen, setIsWishlistOpen] = useState(false);
+  const [isFiltersOpen, setIsFiltersOpen] = useState(false);
+  const [isComparisonOpen, setIsComparisonOpen] = useState(false);
+  const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<{ product: Product; index: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [filters, setFilters] = useState<FilterOptions>({
+    categories: [],
+    brands: [],
+    sizes: [],
+    minPrice: 0,
+    maxPrice: 1000,
+    sortBy: 'newest',
+  });
 
   const { user } = useAuth();
   const userId = user?.id || 'guest';
 
   useEffect(() => {
     loadInitialData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     searchProducts();
-  }, [searchQuery]);
+  }, [searchProducts]);
+
+  useEffect(() => {
+    applyFiltersToProducts(allProducts);
+  }, [filters, allProducts, applyFiltersToProducts]);
 
   const loadInitialData = async () => {
     setIsLoading(true);
@@ -39,9 +68,32 @@ const Dashboard = () => {
         userId !== 'guest' ? mockProductService.getRecommendations(userId) : Promise.resolve([]),
         userId !== 'guest' ? mockCartService.getCart(userId) : Promise.resolve([])
       ]);
+      setAllProducts(productsData);
       setProducts(productsData);
       setRecommendations(recsData);
       setCartItems(cartData);
+      
+      // Load wishlist from localStorage
+      const savedWishlist = localStorage.getItem(`wishlist_${userId}`);
+      if (savedWishlist) {
+        setWishlistItems(JSON.parse(savedWishlist));
+      }
+      
+      // Load recent searches
+      const savedSearches = localStorage.getItem(`recent_searches_${userId}`);
+      if (savedSearches) {
+        setRecentSearches(JSON.parse(savedSearches));
+      }
+      
+      // Calculate price range
+      if (productsData.length > 0) {
+        const prices = productsData.map(p => p.price);
+        setFilters(prev => ({
+          ...prev,
+          minPrice: Math.floor(Math.min(...prices)),
+          maxPrice: Math.ceil(Math.max(...prices)),
+        }));
+      }
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -49,22 +101,75 @@ const Dashboard = () => {
     }
   };
 
-  const searchProducts = async () => {
+  const applyFiltersToProducts = useCallback((productsToFilter: Product[]) => {
+    let filtered = [...productsToFilter];
+
+    // Apply category filter
+    if (filters.categories.length > 0) {
+      filtered = filtered.filter(p => filters.categories.includes(p.category));
+    }
+
+    // Apply brand filter
+    if (filters.brands.length > 0) {
+      filtered = filtered.filter(p => filters.brands.includes(p.brand));
+    }
+
+    // Apply size filter
+    if (filters.sizes.length > 0) {
+      filtered = filtered.filter(p => 
+        p.sizes.some(size => filters.sizes.includes(size))
+      );
+    }
+
+    // Apply price filter
+    filtered = filtered.filter(p => 
+      p.price >= filters.minPrice && p.price <= filters.maxPrice
+    );
+
+    // Apply sorting
+    filtered.sort((a, b) => {
+      switch (filters.sortBy) {
+        case 'price-asc':
+          return a.price - b.price;
+        case 'price-desc':
+          return b.price - a.price;
+        case 'rating':
+          return (b.rating || 0) - (a.rating || 0);
+        case 'return-risk':
+          const aRisk = a.returnRisk || (a.returnRiskScore ? a.returnRiskScore / 100 : 0);
+          const bRisk = b.returnRisk || (b.returnRiskScore ? b.returnRiskScore / 100 : 0);
+          return aRisk - bRisk;
+        default:
+          return 0;
+      }
+    });
+
+    setProducts(filtered);
+  }, [filters]);
+
+  const searchProducts = useCallback(async () => {
     try {
       const results = await mockProductService.searchProducts({ query: searchQuery });
-      setProducts(results);
+      applyFiltersToProducts(results);
+      
+      // Save to recent searches
+      if (searchQuery.trim() && !recentSearches.includes(searchQuery.trim())) {
+        const updated = [searchQuery.trim(), ...recentSearches].slice(0, 10);
+        setRecentSearches(updated);
+        localStorage.setItem(`recent_searches_${userId}`, JSON.stringify(updated));
+      }
     } catch (error) {
       console.error('Error searching products:', error);
     }
-  };
+  }, [searchQuery, recentSearches, userId, applyFiltersToProducts]);
 
-  const handleVoiceCommand = async (response: VoiceResponse) => {
+  const handleVoiceCommand = useCallback(async (response: VoiceResponse) => {
     if (response.products && response.products.length > 0) {
       setProducts(response.products);
     }
-  };
+  }, []);
 
-  const handleAddToCart = async (product: Product) => {
+  const handleAddToCart = useCallback(async (product: Product) => {
     if (userId === 'guest') {
       // For guest users, just update state locally
       setCartItems(prev => {
@@ -91,9 +196,9 @@ const Dashboard = () => {
       });
       setCartItems(updatedCart);
     }
-  };
+  }, [userId]);
 
-  const handleUpdateQuantity = async (productId: string, quantity: number) => {
+  const handleUpdateQuantity = useCallback(async (productId: string, quantity: number) => {
     if (userId === 'guest') {
       if (quantity === 0) {
         setCartItems(prev => prev.filter(item => item.product.id !== productId));
@@ -106,16 +211,117 @@ const Dashboard = () => {
       const updatedCart = await mockCartService.updateQuantity(userId, productId, quantity);
       setCartItems(updatedCart);
     }
-  };
+  }, [userId]);
 
-  const handleRemoveItem = async (productId: string) => {
+  const handleRemoveItem = useCallback(async (productId: string) => {
     if (userId === 'guest') {
       setCartItems(prev => prev.filter(item => item.product.id !== productId));
     } else {
       const updatedCart = await mockCartService.removeFromCart(userId, productId);
       setCartItems(updatedCart);
     }
-  };
+  }, [userId]);
+
+  const handleCartClose = useCallback(() => {
+    setIsCartOpen(false);
+  }, []);
+
+  const handleCartOpen = useCallback(() => {
+    setIsCartOpen(true);
+  }, []);
+
+  const handleToggleWishlist = useCallback((product: Product) => {
+    setWishlistItems(prev => {
+      const isInWishlist = prev.some(p => p.id === product.id);
+      let updated;
+      if (isInWishlist) {
+        updated = prev.filter(p => p.id !== product.id);
+        toast.success('Removed from wishlist');
+      } else {
+        updated = [...prev, product];
+        toast.success('Added to wishlist');
+      }
+      localStorage.setItem(`wishlist_${userId}`, JSON.stringify(updated));
+      return updated;
+    });
+  }, [userId]);
+
+  const handleRemoveFromWishlist = useCallback((productId: string) => {
+    setWishlistItems(prev => {
+      const updated = prev.filter(p => p.id !== productId);
+      localStorage.setItem(`wishlist_${userId}`, JSON.stringify(updated));
+      return updated;
+    });
+  }, [userId]);
+
+  const handleAddToComparison = useCallback((product: Product) => {
+    if (comparisonProducts.length >= 4) {
+      toast.error('You can compare up to 4 products');
+      return;
+    }
+    if (comparisonProducts.some(p => p.id === product.id)) {
+      toast.info('Product already in comparison');
+      return;
+    }
+    setComparisonProducts(prev => [...prev, product]);
+    toast.success('Added to comparison');
+  }, [comparisonProducts]);
+
+  const handleRemoveFromComparison = useCallback((productId: string) => {
+    setComparisonProducts(prev => prev.filter(p => p.id !== productId));
+  }, []);
+
+  const handleQuickView = useCallback((product: Product) => {
+    setQuickViewProduct(product);
+  }, []);
+
+  const handleImageZoom = useCallback((product: Product, imageIndex: number) => {
+    setLightboxImage({ product, index: imageIndex });
+  }, []);
+
+  const handleSearchSelect = useCallback((query: string) => {
+    setSearchQuery(query);
+  }, []);
+
+  const handleFiltersChange = useCallback((newFilters: FilterOptions) => {
+    setFilters(newFilters);
+    setIsFiltersOpen(false);
+  }, []);
+
+  // Get available filter options
+  const availableCategories = useMemo(() => {
+    const categories = new Set(allProducts.map(p => p.category));
+    return Array.from(categories).sort();
+  }, [allProducts]);
+
+  const availableBrands = useMemo(() => {
+    const brands = new Set(allProducts.map(p => p.brand));
+    return Array.from(brands).sort();
+  }, [allProducts]);
+
+  const availableSizes = useMemo(() => {
+    const sizes = new Set(allProducts.flatMap(p => p.sizes));
+    return Array.from(sizes).sort();
+  }, [allProducts]);
+
+  const priceRange: [number, number] = useMemo(() => {
+    if (allProducts.length === 0) return [0, 1000];
+    const prices = allProducts.map(p => p.price);
+    return [Math.floor(Math.min(...prices)), Math.ceil(Math.max(...prices))];
+  }, [allProducts]);
+
+  const popularSearches = useMemo(() => [
+    'Summer Dresses',
+    'Casual Jeans',
+    'Formal Shirts',
+    'Running Shoes',
+    'Leather Jackets',
+  ], []);
+
+  // Memoize filtered recommendations
+  const displayedRecommendations = useMemo(() => {
+    return recommendations.slice(0, 4);
+  }, [recommendations]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -136,16 +342,14 @@ const Dashboard = () => {
 
             {/* Search Bar */}
             <div className="flex-1 max-w-2xl mx-8 hidden md:block">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-5 h-5" />
-                <Input
-                  type="text"
-                  placeholder="Search for outfits, brands, or styles..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
+              <SearchSuggestions
+                value={searchQuery}
+                onChange={setSearchQuery}
+                onSelect={handleSearchSelect}
+                products={allProducts}
+                recentSearches={recentSearches}
+                popularSearches={popularSearches}
+              />
             </div>
 
             {/* Actions */}
@@ -156,9 +360,35 @@ const Dashboard = () => {
                 </Link>
               </Button>
               <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsWishlistOpen(true)}
+                className="relative"
+              >
+                <Heart className="w-5 h-5" />
+                {wishlistItems.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                    {wishlistItems.length}
+                  </span>
+                )}
+              </Button>
+              {comparisonProducts.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsComparisonOpen(true)}
+                  className="relative"
+                >
+                  <GitCompare className="w-5 h-5" />
+                  <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                    {comparisonProducts.length}
+                  </span>
+                </Button>
+              )}
+              <Button
                 variant="outline"
                 size="icon"
-                onClick={() => setIsCartOpen(true)}
+                onClick={handleCartOpen}
                 className="relative"
               >
                 <ShoppingBag className="w-5 h-5" />
@@ -173,16 +403,14 @@ const Dashboard = () => {
 
           {/* Mobile Search */}
           <div className="pb-4 md:hidden">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-5 h-5" />
-              <Input
-                type="text"
-                placeholder="Search..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
+            <SearchSuggestions
+              value={searchQuery}
+              onChange={setSearchQuery}
+              onSelect={handleSearchSelect}
+              products={allProducts}
+              recentSearches={recentSearches}
+              popularSearches={popularSearches}
+            />
           </div>
         </div>
       </header>
@@ -227,7 +455,7 @@ const Dashboard = () => {
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {recommendations.slice(0, 4).map((product, index) => (
+              {displayedRecommendations.map((product, index) => (
                 <motion.div
                   key={product.id}
                   initial={{ opacity: 0, y: 20 }}
@@ -237,6 +465,11 @@ const Dashboard = () => {
                   <ProductCard
                     product={product}
                     onAddToCart={handleAddToCart}
+                    onQuickView={handleQuickView}
+                    onImageZoom={handleImageZoom}
+                    onToggleWishlist={handleToggleWishlist}
+                    isInWishlist={wishlistItems.some(p => p.id === product.id)}
+                    onCompare={handleAddToComparison}
                   />
                 </motion.div>
               ))}
@@ -256,9 +489,18 @@ const Dashboard = () => {
                   <Grid3X3 className="w-4 h-4" />
                 </Button>
               </div>
-              <Button variant="outline" size="sm">
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setIsFiltersOpen(true)}
+              >
                 <Filter className="w-4 h-4 mr-2" />
                 Filters
+                {filters.categories.length + filters.brands.length + filters.sizes.length > 0 && (
+                  <Badge variant="secondary" className="ml-2">
+                    {filters.categories.length + filters.brands.length + filters.sizes.length}
+                  </Badge>
+                )}
               </Button>
             </div>
           </div>
@@ -291,6 +533,11 @@ const Dashboard = () => {
                   <ProductCard
                     product={product}
                     onAddToCart={handleAddToCart}
+                    onQuickView={handleQuickView}
+                    onImageZoom={handleImageZoom}
+                    onToggleWishlist={handleToggleWishlist}
+                    isInWishlist={wishlistItems.some(p => p.id === product.id)}
+                    onCompare={handleAddToComparison}
                   />
                 </motion.div>
               ))}
@@ -314,20 +561,10 @@ const Dashboard = () => {
       {/* Shopping Cart */}
       <ShoppingCart
         isOpen={isCartOpen}
-        onClose={() => setIsCartOpen(false)}
+        onClose={handleCartClose}
         cartItems={cartItems}
-        onUpdateQuantity={(productId, quantity) => {
-          if (quantity === 0) {
-            setCartItems(prev => prev.filter(item => item.product.id !== productId));
-          } else {
-            setCartItems(prev => prev.map(item =>
-              item.product.id === productId ? { ...item, quantity } : item
-            ));
-          }
-        }}
-        onRemoveItem={(productId) => {
-          setCartItems(prev => prev.filter(item => item.product.id !== productId));
-        }}
+        onUpdateQuantity={handleUpdateQuantity}
+        onRemoveItem={handleRemoveItem}
         onCheckout={() => {
           // Checkout is handled in ShoppingCart component
         }}

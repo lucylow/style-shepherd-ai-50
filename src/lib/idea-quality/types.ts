@@ -316,3 +316,46 @@ export interface DetailedComparisonMatrix {
   overallWinnerAreas: string[];
 }
 
+// Judging Criteria Framework Types
+export interface Evidence {
+  type: 'statistic' | 'research' | 'user_validation' | 'market_analysis' | 'technical';
+  value: string;
+  source: string;
+  relevance: string;
+}
+
+export interface JudgingCriteria {
+  criterion: string;
+  weight: number; // Relative importance
+  maxScore: number;
+  evidence: Evidence[];
+  styleShepherdScore: number;
+  reasoning: string;
+}
+
+export interface OverallJudgingAssessment {
+  overallScore: number;
+  criteria: JudgingCriteria[];
+  ranking: string;
+  verdict: string;
+  competitorComparison: CompetitorComparison;
+  recommendation: string;
+}
+
+export interface CompetitorComparison {
+  styleShepherd: { score: number; percentile: string; tier: string };
+  averageHackathonEntry: { score: number; gap: string };
+  typicalWinner: { score: number; gap: string };
+  championship: { score: number; gap: string };
+}
+
+export interface PDFContent {
+  title: string;
+  sections: PDFSection[];
+}
+
+export interface PDFSection {
+  title: string;
+  content: string;
+}
+

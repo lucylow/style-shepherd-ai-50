@@ -8,8 +8,14 @@ export interface Product {
   category: string;
   sizes: string[];
   recommendedSize?: string;
+  // Legacy fields (for backward compatibility)
   returnRisk?: number;
   confidence?: number;
+  // New backend fields
+  returnRiskScore?: number; // 0-100 numeric score
+  returnRiskLabel?: 'low' | 'medium' | 'high' | 'unknown';
+  sizeConfidence?: number; // 0-100 size confidence score
+  sustainability?: string | null; // eco_badge or sustainability_score
   description?: string;
   color?: string;
   rating?: number;

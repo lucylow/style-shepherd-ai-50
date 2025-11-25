@@ -1,3 +1,4 @@
+import { memo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ShoppingBag, AlertTriangle, CheckCircle, Minus, Plus, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -7,6 +8,7 @@ import { ScrollArea } from './ui/scroll-area';
 import { Separator } from './ui/separator';
 import { CartItem } from '@/types/fashion';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCartCalculations } from '@/hooks/useCartCalculations';
 import { toast } from 'sonner';
 
 interface ShoppingCartProps {
@@ -18,7 +20,7 @@ interface ShoppingCartProps {
   onCheckout: () => void;
 }
 
-export const ShoppingCart = ({
+export const ShoppingCart = memo(({
   isOpen,
   onClose,
   cartItems,
@@ -28,12 +30,9 @@ export const ShoppingCart = ({
 }: ShoppingCartProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const total = cartItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
-  const totalReturnRisk = cartItems.length > 0
-    ? cartItems.reduce((sum, item) => sum + (item.product.returnRisk || 0), 0) / cartItems.length
-    : 0;
+  const { total, totalReturnRisk } = useCartCalculations(cartItems);
 
-  const handleCheckout = () => {
+  const handleCheckout = useCallback(() => {
     if (!user) {
       toast.error('Please sign in to checkout');
       navigate('/login');
@@ -45,7 +44,7 @@ export const ShoppingCart = ({
     }
     navigate('/checkout');
     onClose();
-  };
+  }, [user, cartItems.length, navigate, onClose]);
 
   return (
     <AnimatePresence>
@@ -236,4 +235,6 @@ export const ShoppingCart = ({
       )}
     </AnimatePresence>
   );
-};
+});
+
+ShoppingCart.displayName = 'ShoppingCart';
