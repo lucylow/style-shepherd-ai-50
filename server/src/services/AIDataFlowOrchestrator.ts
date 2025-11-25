@@ -172,7 +172,7 @@ export class AIDataFlowOrchestrator {
     
     // Check cache (unless skipped)
     if (!options?.skipCache) {
-      const cached = await this.getCached(cacheKey);
+      const cached = await this.getCached<TOutput>(cacheKey);
       if (cached) {
         this.metrics.cache.hits++;
         this.metrics.requests.cached++;
@@ -409,7 +409,9 @@ export class AIDataFlowOrchestrator {
       if (this.requestCache.size >= this.cacheConfig.maxSize) {
         // Remove oldest entry (simple LRU)
         const firstKey = this.requestCache.keys().next().value;
-        this.requestCache.delete(firstKey);
+        if (firstKey) {
+          this.requestCache.delete(firstKey);
+        }
       }
       this.requestCache.set(key, {
         data,

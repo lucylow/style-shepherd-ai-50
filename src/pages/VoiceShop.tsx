@@ -115,39 +115,66 @@ const VoiceShop = () => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent rounded-2xl p-8 mb-8 border border-primary/20"
+          className="bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-8 mb-8 border border-primary/20 relative overflow-hidden"
         >
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+          {/* Decorative background */}
+          <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+          
+          <div className="relative flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex-1">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 bg-primary rounded-full flex items-center justify-center">
-                  <Mic className="w-6 h-6 text-white" />
+              <div className="flex items-center gap-4 mb-4">
+                <motion.div
+                  initial={{ scale: 0, rotate: -180 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  transition={{ type: "spring", stiffness: 200, damping: 15 }}
+                  className="w-14 h-14 bg-gradient-to-br from-primary to-primary/70 rounded-2xl flex items-center justify-center shadow-lg"
+                >
+                  <Sparkles className="w-7 h-7 text-white" />
+                </motion.div>
+                <div>
+                  <h1 className="text-3xl font-bold text-foreground">Voice Shop</h1>
+                  <p className="text-sm text-muted-foreground flex items-center gap-1.5 mt-1">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                    AI Assistant Ready
+                  </p>
                 </div>
-                <h1 className="text-3xl font-bold text-foreground">Voice Shop</h1>
               </div>
               <p className="text-muted-foreground text-lg mb-4">
                 Shop hands-free with voice commands. Say what you're looking for and we'll find it for you.
               </p>
               {lastCommand && (
-                <div className="bg-card border border-border rounded-lg p-3 mt-4">
-                  <p className="text-sm text-muted-foreground">Last command:</p>
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-card border border-border rounded-lg p-4 mt-4 shadow-sm"
+                >
+                  <p className="text-xs text-muted-foreground mb-1 flex items-center gap-2">
+                    <Mic className="w-3 h-3" />
+                    Last command:
+                  </p>
                   <p className="text-foreground font-medium">"{lastCommand}"</p>
-                </div>
+                </motion.div>
               )}
             </div>
             <div className="flex items-center gap-4">
               <div className="flex flex-col items-center gap-2">
-                <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-colors ${
-                  isListening ? 'bg-red-500 animate-pulse' : 'bg-muted'
-                }`}>
+                <motion.div
+                  className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-lg ${
+                    isListening 
+                      ? 'bg-gradient-to-br from-red-500 to-red-600 text-white' 
+                      : 'bg-gradient-to-br from-primary to-primary/70 text-white'
+                  }`}
+                  animate={isListening ? { scale: [1, 1.1, 1] } : {}}
+                  transition={{ duration: 1, repeat: isListening ? Infinity : 0 }}
+                >
                   {isListening ? (
-                    <MicOff className="w-8 h-8 text-white" />
+                    <MicOff className="w-8 h-8" />
                   ) : (
-                    <Mic className="w-8 h-8 text-foreground" />
+                    <Mic className="w-8 h-8" />
                   )}
-                </div>
-                <span className="text-sm text-muted-foreground">
-                  {isListening ? 'Listening...' : 'Tap to start'}
+                </motion.div>
+                <span className="text-sm font-medium text-foreground">
+                  {isListening ? 'Listening...' : 'Ready to listen'}
                 </span>
               </div>
             </div>

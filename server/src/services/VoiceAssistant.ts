@@ -9,8 +9,11 @@ import env from '../config/env.js';
 import { userMemory } from '../lib/raindrop-config.js';
 import { vultrValkey } from '../lib/vultr-valkey.js';
 import { ttsService } from './TTSService.js';
+import { aiDataFlowOrchestrator, AIRequest } from './AIDataFlowOrchestrator.js';
+import { conversationMemoryOptimizer, ConversationMessage } from './ConversationMemoryOptimizer.js';
 import { llmService } from './LLMService.js';
 import { sttService } from './STTService.js';
+import { createHash } from 'crypto';
 
 export interface ConversationState {
   conversationId: string;
@@ -138,8 +141,55 @@ export class VoiceAssistant {
    * - Preference memory storage
    * - Context-aware responses
    * - Error handling with retries
+   * - Enhanced data flow with orchestrator
    */
   async processVoiceInput(
+    conversationId: string,
+    audioStream: Buffer | ArrayBuffer,
+    userId?: string
+  ): Promise<{ text: string; audio?: Buffer; intent?: any; entities?: any; preferencesSaved?: boolean }> {
+    // Use orchestrator for better data flow management
+    const requestId = `voice_${conversationId}_${Date.now()}`;
+    const dedupeKey = userId ? `voice_${userId}_${this.hashAudio(audioStream)}` : undefined;
+
+    const request: AIRequest<{ conversationId: string; audioStream: Buffer | ArrayBuffer; userId?: string }> = {
+      id: requestId,
+      type: 'voice',
+      payload: { conversationId, audioStream, userId },
+      userId,
+      timestamp: Date.now(),
+      dedupeKey,
+      priority: 'high',
+    };
+
+    // Process through orchestrator for caching, deduplication, and circuit breaking
+    try {
+      const response = await aiDataFlowOrchestrator.processRequest(
+        request,
+        async (req) => {
+          return this.processVoiceInputInternal(req.payload.conversationId, req.payload.audioStream, req.payload.userId);
+        },
+        {
+          cacheKey: dedupeKey ? `voice:${userId}:${this.hashAudio(audioStream)}` : undefined,
+          cacheTTL: 300, // Cache voice requests for 5 minutes
+          serviceName: 'voice-assistant',
+          skipDeduplication: !dedupeKey, // Skip if no dedupe key
+          skipCache: false, // Enable caching
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      // Fallback to direct processing if orchestrator fails
+      console.warn('Orchestrator failed, falling back to direct processing:', error);
+      return this.processVoiceInputInternal(conversationId, audioStream, userId);
+    }
+  }
+
+  /**
+   * Internal voice processing (original implementation)
+   */
+  private async processVoiceInputInternal(
     conversationId: string,
     audioStream: Buffer | ArrayBuffer,
     userId?: string
@@ -171,6 +221,11 @@ export class VoiceAssistant {
         ]);
       }
 
+      // Get conversation history for context (needed before intent extraction)
+      const conversationHistory = userId 
+        ? await this.getConversationHistory(userId, 10)
+        : [];
+
         // Enhanced intent and entity extraction using LLM (with fallback)
       const intentAnalysis = await llmService.extractIntentAndEntities(
         textQuery,
@@ -180,11 +235,6 @@ export class VoiceAssistant {
         
         // Check if user wants to save preferences
         const preferencesToSave = this.detectPreferencesFromQuery(textQuery, intentAnalysis);
-      
-      // Get conversation history for context
-      const conversationHistory = userId 
-        ? await this.getConversationHistory(userId, 10)
-        : [];
 
         // Generate intelligent response using LLM (with fallback)
       let responseText = await llmService.generateResponse(
@@ -192,8 +242,8 @@ export class VoiceAssistant {
         intentAnalysis,
         conversationHistory,
         userProfile,
-        state?.preferences
-      );
+          state?.preferences
+        );
 
         // Save user preferences if detected
         let preferencesSaved = false;
@@ -289,22 +339,47 @@ export class VoiceAssistant {
         await vultrValkey.set(`conversation:${userId}`, newState, 3600);
       }
 
-      // Store conversation in SmartMemory for continuity with metadata
+      // Store conversation in SmartMemory for continuity with metadata (with optimization)
       if (userId) {
-        await userMemory.append(`${userId}-conversation`, {
-          message: textQuery,
-          type: 'user',
-          intent: intentAnalysis.intent,
-          entities: intentAnalysis.entities,
-          timestamp: Date.now(),
-            sttSource: sttResult.source,
-        });
-        await userMemory.append(`${userId}-conversation`, {
-          message: responseText,
-          type: 'assistant',
-          timestamp: Date.now(),
-            preferencesSaved,
-        });
+        const conversationKey = `${userId}-conversation`;
+        const newMessages: ConversationMessage[] = [
+          {
+            message: textQuery,
+            type: 'user',
+            intent: intentAnalysis.intent,
+            entities: intentAnalysis.entities,
+            timestamp: Date.now(),
+            metadata: { sttSource: sttResult.source },
+          },
+          {
+            message: responseText,
+            type: 'assistant',
+            timestamp: Date.now(),
+            metadata: { preferencesSaved },
+          },
+        ];
+
+        // Get existing conversation and optimize if needed
+        try {
+          const existingMessages = await userMemory.get(conversationKey) || [];
+          const allMessages = Array.isArray(existingMessages) 
+            ? [...existingMessages, ...newMessages]
+            : newMessages;
+
+          // Optimize conversation if it's getting large
+          if (allMessages.length > 20) {
+            const optimized = await conversationMemoryOptimizer.optimizeConversation(allMessages);
+            await userMemory.set(conversationKey, optimized);
+          } else {
+            await userMemory.append(conversationKey, newMessages[0]);
+            await userMemory.append(conversationKey, newMessages[1]);
+          }
+        } catch (memoryError) {
+          // Fallback to simple append if optimization fails
+          console.warn('Conversation optimization failed, using simple append:', memoryError);
+          await userMemory.append(conversationKey, newMessages[0]);
+          await userMemory.append(conversationKey, newMessages[1]);
+        }
       }
 
       return {
@@ -355,7 +430,7 @@ export class VoiceAssistant {
           userMemory.get(userId),
         ]);
       }
-
+      
       // Get conversation history
       const conversationHistory = userId 
         ? await this.getConversationHistory(userId, 10)
@@ -475,74 +550,24 @@ export class VoiceAssistant {
   }
 
   /**
-   * Enhanced speech-to-text with multiple service support
+   * Get context prompt for STT (helps with accuracy)
    */
-  private async speechToText(
-    audioStream: Buffer | ArrayBuffer,
-    userId?: string
-  ): Promise<STTResult> {
+  private async getContextPrompt(userId: string): Promise<string | undefined> {
     try {
-      // Convert to Buffer if needed
-      const audioBuffer = audioStream instanceof Buffer 
-        ? audioStream 
-        : Buffer.from(new Uint8Array(audioStream));
-
-      // Try ElevenLabs STT if available (check SDK capabilities)
-      if (this.client) {
-        try {
-          // Note: ElevenLabs SDK v2.25.0 may support STT via conversations API
-          // Check if speechToText API is available
-          if ('speechToText' in this.client && this.client.speechToText) {
-            const response = await (this.client as any).speechToText.convert(audioBuffer);
-            if (response && response.text) {
-              return {
-                text: response.text,
-                confidence: response.confidence,
-                source: 'elevenlabs',
-              };
-            }
-          }
-        } catch (elevenlabsError) {
-          console.debug('ElevenLabs STT not available or failed:', elevenlabsError);
-        }
-      }
-
-      // TODO: Integrate with other STT services
-      // - OpenAI Whisper API
-      // - Google Cloud Speech-to-Text
-      // - AWS Transcribe
-      // For now, use enhanced fallback
+      const state = await vultrValkey.get<ConversationState>(`conversation:${userId}`);
+      const history = await this.getConversationHistory(userId, 3);
       
-      return this.enhancedSTTFallback(audioBuffer, userId);
+      if (history.length > 0 || state?.lastMessage) {
+        const recentContext = history
+          .slice(-3)
+          .map((m: any) => m.message)
+          .join('. ');
+        return `Context: ${recentContext}. ${state?.lastMessage || ''}`;
+      }
     } catch (error) {
-      console.error('Speech-to-text error:', error);
-      return this.enhancedSTTFallback(
-        audioStream instanceof Buffer ? audioStream : Buffer.from(new Uint8Array(audioStream)),
-        userId
-      );
+      // Non-critical, continue without context
     }
-  }
-
-  /**
-   * Enhanced STT fallback - in production, integrate with dedicated STT service
-   */
-  private async enhancedSTTFallback(
-    audioBuffer: Buffer,
-    userId?: string
-  ): Promise<STTResult> {
-    // In production, this should integrate with:
-    // - OpenAI Whisper API: Most accurate, supports multiple languages
-    // - Google Cloud Speech-to-Text: Enterprise-grade, real-time streaming
-    // - AWS Transcribe: Good for AWS-based architectures
-    
-    console.warn('STT service not configured - using fallback. Please configure a dedicated STT service for production.');
-    
-    // For now, return placeholder that indicates processing is needed
-    // In a real implementation, you would call an STT API here
-    return {
-      text: '[Audio transcription needed - please configure STT service]',
-      source: 'fallback',
-    };
+    return undefined;
   }
 
   /**
@@ -723,7 +748,8 @@ export class VoiceAssistant {
   }
 
   /**
-   * Generate contextual response with preference awareness
+   * Generate contextual response (delegates to LLM service)
+   * Kept for backward compatibility
    */
   private async generateContextualResponse(
     query: string,
@@ -733,74 +759,12 @@ export class VoiceAssistant {
     context: Record<string, any>,
     preferences?: UserVoicePreferences
   ): Promise<string> {
-    const { intent, entities } = intentAnalysis;
-    const userName = userProfile?.name || userProfile?.firstName || 'there';
-
-    // Build context-aware responses with preference awareness
-    switch (intent) {
-      case 'search_product':
-        const productDesc = [];
-        if (entities.color) productDesc.push(entities.color);
-        if (entities.category) productDesc.push(entities.category);
-        const searchDesc = productDesc.length > 0 ? productDesc.join(' ') : 'items';
-        
-        // Use preferred colors if available
-        const preferredColors = preferences?.colorPreferences || [];
-        if (preferredColors.length > 0 && !entities.color) {
-          return `I'll help you find ${searchDesc}. Based on your preference for ${preferredColors.join(' and ')}, let me search our collection for you, ${userName}!`;
-        }
-        
-        return `I'll help you find ${searchDesc}${entities.occasion ? ` for ${entities.occasion}` : ''}. Let me search our collection for you, ${userName}!`;
-
-      case 'get_recommendations':
-        // Use stored preferences if available
-        const prefText = preferences?.stylePreferences?.length 
-          ? ` based on your preference for ${preferences.stylePreferences.join(' and ')}`
-          : '';
-        return `Based on your style preferences${prefText}${entities.occasion ? ` and the ${entities.occasion} occasion` : ''}, I have some great recommendations for you! Would you like me to show you some options?`;
-
-      case 'ask_about_size':
-        // Check if we have size preferences for the brand
-        const brand = entities.brand || context.lastBrand;
-        const preferredSize = brand && preferences?.sizePreferences?.[brand];
-        
-        if (preferredSize) {
-          return `Based on your previous purchases, you wear a ${preferredSize} in ${brand}. Would you like me to check if that size is available?`;
-        }
-        
-        return `I can help you find the perfect size! ${entities.size ? `You mentioned size ${entities.size}. ` : ''}Would you like me to check your measurements and recommend the best fit?`;
-
-      case 'add_to_cart':
-        return `Great choice! I'll add that to your cart. Would you like to continue shopping or proceed to checkout?`;
-
-      case 'return_product':
-        return `I can help you with your return. Do you have an order number, or would you like me to look up your recent orders?`;
-
-      case 'track_order':
-        return `Let me check the status of your order for you. One moment please!`;
-
-      case 'check_availability':
-        // Use preferences if available
-        const sizePref = brand && preferences?.sizePreferences?.[brand];
-        const colorPref = preferences?.colorPreferences?.[0];
-        
-        if (sizePref || colorPref) {
-          return `I'll check if that item is available${sizePref ? ` in size ${sizePref}` : ''}${colorPref ? ` in ${colorPref}` : ''} right away!`;
-        }
-        return `I'll check if that item is available in your size and preferred color right away!`;
-
-      default:
-        // Use context from previous messages for better continuity
-        const lastIntent = context.lastIntent;
-        if (lastIntent === 'search_product' || lastIntent === 'get_recommendations') {
-          return `I understand you're looking for something specific. Could you tell me more about what you have in mind? I can help with color, style, occasion, or budget preferences.`;
-        }
-        return `Hi ${userName}! I'm here to help you find the perfect fashion items. You can ask me to search for products, get recommendations, check sizes, or help with your orders. What would you like to explore today?`;
-    }
+    return llmService.generateResponse(query, intentAnalysis, history, userProfile, preferences);
   }
 
   /**
-   * Enhanced intent extraction with entity recognition
+   * Extract intent and entities (delegates to LLM service)
+   * Kept for backward compatibility - actual calls use llmService directly
    */
   private async extractIntentAndEntities(text: string, userId?: string): Promise<{
     intent: string;
@@ -808,127 +772,43 @@ export class VoiceAssistant {
     confidence: number;
     context?: Record<string, any>;
   }> {
-    // Enhanced NLP processing
-    const intents = [
-      'search_product',
-      'get_recommendations',
-      'ask_about_size',
-      'check_availability',
-      'add_to_cart',
-      'get_style_advice',
-      'return_product',
-      'track_order',
-      'save_preference',
-      'general_question'
-    ];
-
-    const entities: Record<string, any> = {};
-    let detectedIntent = 'general_question';
-    let confidence = 0.5;
-
-    // Extract fashion entities
-    const colors = ['red', 'blue', 'green', 'black', 'white', 'yellow', 'pink', 'purple', 'orange', 'gray', 'grey', 'navy', 'beige', 'brown'];
-    const categories = ['dress', 'shirt', 'pants', 'jeans', 'jacket', 'coat', 'shoes', 'boots', 'sneakers', 'heels', 'skirt', 'top', 'blouse'];
-    const occasions = ['wedding', 'party', 'casual', 'formal', 'business', 'date', 'work', 'weekend', 'vacation'];
-    const sizes = ['xs', 'small', 's', 'medium', 'm', 'large', 'l', 'xl', 'xxl'];
-    const brands = ['nike', 'adidas', 'zara', 'h&m', 'gucci', 'prada', 'versace', 'calvin klein', 'tommy hilfiger', 'levi\'s', 'levis'];
-
-    const lowerText = text.toLowerCase();
-
-    // Detect preference saving intent
-    if (lowerText.match(/\b(remember|save|store|prefer|my preference|i like|i wear)\b/i)) {
-      detectedIntent = 'save_preference';
-      confidence = 0.85;
-    }
-    // Detect intent based on keywords and patterns
-    else if (lowerText.match(/\b(find|search|show|get|looking for)\b/i)) {
-      detectedIntent = 'search_product';
-      confidence = 0.8;
-    } else if (lowerText.match(/\b(recommend|suggest|what should|advice)\b/i)) {
-      detectedIntent = 'get_recommendations';
-      confidence = 0.85;
-    } else if (lowerText.match(/\b(size|fit|measurement|small|medium|large)\b/i)) {
-      detectedIntent = 'ask_about_size';
-      confidence = 0.75;
-    } else if (lowerText.match(/\b(add|cart|buy|purchase)\b/i)) {
-      detectedIntent = 'add_to_cart';
-      confidence = 0.8;
-    } else if (lowerText.match(/\b(return|refund|exchange)\b/i)) {
-      detectedIntent = 'return_product';
-      confidence = 0.9;
-    } else if (lowerText.match(/\b(order|track|shipping|delivery)\b/i)) {
-      detectedIntent = 'track_order';
-      confidence = 0.85;
-    }
-
-    // Extract entities
-    for (const color of colors) {
-      if (lowerText.includes(color)) {
-        entities.color = color;
-        confidence += 0.1;
-        break;
-      }
-    }
-
-    for (const category of categories) {
-      if (lowerText.includes(category)) {
-        entities.category = category;
-        confidence += 0.1;
-        break;
-      }
-    }
-
-    for (const occasion of occasions) {
-      if (lowerText.includes(occasion)) {
-        entities.occasion = occasion;
-        confidence += 0.1;
-        break;
-      }
-    }
-
-    for (const size of sizes) {
-      if (lowerText.includes(size)) {
-        entities.size = size.toUpperCase();
-        confidence += 0.05;
-        break;
-      }
-    }
-
-    // Extract brand names
-    for (const brand of brands) {
-      if (lowerText.includes(brand)) {
-        entities.brand = brand;
-        confidence += 0.1;
-        break;
-      }
-    }
-
-    // Extract price range
-    const priceMatch = lowerText.match(/\$?(\d+)(?:\s*-\s*\$?(\d+))?/);
-    if (priceMatch) {
-      entities.priceRange = {
-        min: parseInt(priceMatch[1]),
-        max: priceMatch[2] ? parseInt(priceMatch[2]) : undefined
-      };
-      confidence += 0.05;
-    }
-
-    confidence = Math.min(0.95, confidence);
-
-    return {
-      intent: detectedIntent,
-      entities,
-      confidence,
-    };
+    const conversationHistory = userId 
+      ? await this.getConversationHistory(userId, 10)
+      : [];
+    const userProfile = userId ? await userMemory.get(userId) : null;
+    
+    return llmService.extractIntentAndEntities(text, conversationHistory, userProfile);
   }
 
   /**
-   * Get conversation history
+   * Get conversation history with smart summarization for long contexts
    */
   async getConversationHistory(userId: string, limit: number = 50): Promise<any[]> {
     try {
       const history = await userMemory.get(`${userId}-conversation`) || [];
-      return Array.isArray(history) ? history.slice(-limit) : [];
+      const fullHistory = Array.isArray(history) ? history : [];
+      
+      // If history is too long, summarize older messages
+      if (fullHistory.length > limit * 2) {
+        const recentMessages = fullHistory.slice(-limit);
+        const olderMessages = fullHistory.slice(0, -limit);
+        
+        // Summarize older messages using LLM
+        const summary = await llmService.summarizeConversation(olderMessages, limit);
+        
+        // Return summary + recent messages
+        return [
+          {
+            type: 'system',
+            message: `Previous conversation summary: ${summary.summary}`,
+            timestamp: summary.timestamp,
+            summary: true,
+          },
+          ...recentMessages,
+        ];
+      }
+      
+      return fullHistory.slice(-limit);
     } catch (error) {
       console.error('Failed to get conversation history:', error);
       return [];
@@ -1050,6 +930,24 @@ export class VoiceAssistant {
     } catch (error) {
       console.error('Failed to end conversation:', error);
     }
+  }
+
+  /**
+   * Utility: Hash audio stream for deduplication
+   */
+  private hashAudio(audioStream: Buffer | ArrayBuffer): string {
+    const buffer = audioStream instanceof Buffer 
+      ? audioStream 
+      : Buffer.from(new Uint8Array(audioStream));
+    
+    // Use first 1KB + last 1KB + length for fast hashing
+    const sample = Buffer.concat([
+      buffer.slice(0, Math.min(1024, buffer.length)),
+      buffer.slice(Math.max(0, buffer.length - 1024)),
+      Buffer.from(buffer.length.toString()),
+    ]);
+    
+    return createHash('sha256').update(sample).digest('hex').substring(0, 16);
   }
 
   /**

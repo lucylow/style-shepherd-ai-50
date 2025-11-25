@@ -6,6 +6,7 @@
 
 import OpenAI from 'openai';
 import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
+import FormData from 'form-data';
 import env from '../config/env.js';
 
 export interface STTResult {
@@ -96,35 +97,56 @@ export class STTService {
 
   /**
    * Transcribe using OpenAI Whisper API
+   * Uses direct HTTP API with FormData for Node.js compatibility
    */
   private async transcribeWithWhisper(
     audioBuffer: Buffer,
     options?: { language?: string; prompt?: string }
   ): Promise<STTResult> {
-    if (!this.openaiClient) {
-      throw new Error('OpenAI client not initialized');
+    const apiKey = env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('OpenAI API key not configured');
     }
 
-    // Create a File-like object for the API
-    const file = new File(
-      [audioBuffer],
-      `audio_${Date.now()}.${this.detectAudioFormat(audioBuffer)}`,
-      { type: this.detectMimeType(audioBuffer) }
-    );
+    const filename = `audio_${Date.now()}.${this.detectAudioFormat(audioBuffer)}`;
+    const mimeType = this.detectMimeType(audioBuffer);
 
-    const transcription = await this.openaiClient.audio.transcriptions.create({
-      file: file,
-      model: 'whisper-1',
-      language: options?.language,
-      prompt: options?.prompt, // Context for better accuracy
-      response_format: 'verbose_json', // Get confidence and other metadata
+    // Use FormData for Node.js compatibility
+    const formData = new FormData();
+    
+    formData.append('file', audioBuffer, {
+      filename,
+      contentType: mimeType,
+    });
+    formData.append('model', 'whisper-1');
+    if (options?.language) {
+      formData.append('language', options.language);
+    }
+    if (options?.prompt) {
+      formData.append('prompt', options.prompt);
+    }
+    formData.append('response_format', 'verbose_json');
+
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        ...formData.getHeaders(),
+      },
+      body: formData as any,
     });
 
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => response.statusText);
+      throw new Error(`OpenAI Whisper API error: ${response.status} ${errorText}`);
+    }
+
+    const result = await response.json();
     return {
-      text: transcription.text,
-      confidence: (transcription as any).confidence || 0.9, // Whisper doesn't provide confidence, estimate
+      text: result.text,
+      confidence: result.confidence || 0.9,
       source: 'openai',
-      language: transcription.language || options?.language,
+      language: result.language || options?.language,
     };
   }
 
