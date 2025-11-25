@@ -1,0 +1,48 @@
+{
+  "businessMetrics": {
+    "overview": {
+      "totalUsers": 12500,
+      "activeUsers": 8450,
+      "totalOrders": 34200,
+      "totalReturnsPrevented": 15300,
+      "totalSavings": 458000,
+      "customerSatisfaction": 4.8
+    },
+    "returnsReduction": {
+      "baselineReturnRate": 0.32,
+      "currentReturnRate": 0.09,
+      "reductionPercentage": 0.72,
+      "monthlySavings": 38200,
+      "annualProjection": 458400
+    },
+    "environmentalImpact": {
+      "carbonReductionTons": 125.8,
+      "packagingWasteSaved": 45.2,
+      "waterSaved": 125000,
+      "shipmentsEliminated": 15300
+    },
+    "aiPerformance": {
+      "predictionAccuracy": 0.94,
+      "averageConfidence": 0.89,
+      "modelRetrainingFrequency": "weekly",
+      "featureImportance": [
+        {"feature": "historical_brand_fit", "importance": 0.23},
+        {"feature": "body_measurement_match", "importance": 0.21},
+        {"feature": "style_preference_alignment", "importance": 0.18},
+        {"feature": "fabric_compatibility", "importance": 0.15}
+      ]
+    }
+  },
+  "userEngagement": {
+    "voiceQueriesPerDay": 1250,
+    "averageSessionDuration": "8.5 minutes",
+    "featureUsage": {
+      "voiceAssistant": 0.85,
+      "returnsPrediction": 0.92,
+      "sizeRecommendation": 0.78,
+      "sustainabilityTracking": 0.45
+    },
+    "retentionRate": 0.88
+  }
+}
+

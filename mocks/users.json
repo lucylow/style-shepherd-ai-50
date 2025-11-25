@@ -1,0 +1,98 @@
+{
+  "users": [
+    {
+      "id": "user_001",
+      "name": "Sarah Chen",
+      "email": "sarah.chen@email.com",
+      "voicePreference": "rachel",
+      "styleProfile": {
+        "archetype": "smart_casual",
+        "preferredColors": ["navy", "burgundy", "olive", "cream"],
+        "avoidedColors": ["neon", "orange"],
+        "fitPreference": "slim",
+        "budgetRange": {"min": 50, "max": 300},
+        "sustainabilityImportance": 8,
+        "occasions": ["work", "weekend", "date_night", "business_travel"]
+      },
+      "bodyMeasurements": {
+        "height": 167,
+        "weight": 61,
+        "chest": 86,
+        "waist": 71,
+        "hips": 91,
+        "inseam": 76,
+        "shoeSize": 38
+      },
+      "sizeHistory": {
+        "tops": {"Zara": "S", "H&M": "M", "Everlane": "XS", "Levi's": "M"},
+        "bottoms": {"Zara": "S", "H&M": "32", "Everlane": "29", "Levi's": "30x32"},
+        "dresses": {"Reformation": "4", "Aritzia": "S", "& Other Stories": "XS"}
+      },
+      "returnHistory": [
+        {
+          "productId": "prod_789",
+          "reason": "too_large",
+          "brand": "H&M",
+          "category": "dress",
+          "sizeOrdered": "M",
+          "date": "2024-01-15"
+        },
+        {
+          "productId": "prod_456",
+          "reason": "style_not_as_expected",
+          "brand": "Zara",
+          "category": "top",
+          "sizeOrdered": "S",
+          "date": "2024-02-22"
+        }
+      ],
+      "conversationHistory": [
+        {
+          "timestamp": "2024-03-15T14:30:00Z",
+          "userQuery": "What should I wear to a beach wedding in Mexico?",
+          "aiResponse": "For a beach wedding, I recommend a flowy maxi dress in lightweight fabric. Since it's Mexico, consider bright colors or floral patterns. Let me find some options with low return risk.",
+          "productsShown": ["prod_123", "prod_124", "prod_125"]
+        }
+      ]
+    },
+    {
+      "id": "user_002",
+      "name": "Marcus Johnson",
+      "email": "marcus.j@email.com",
+      "voicePreference": "domi",
+      "styleProfile": {
+        "archetype": "business_casual",
+        "preferredColors": ["navy", "charcoal", "white", "olive"],
+        "avoidedColors": ["bright_red", "purple"],
+        "fitPreference": "regular",
+        "budgetRange": {"min": 75, "max": 500},
+        "sustainabilityImportance": 6,
+        "occasions": ["work", "client_meetings", "weekend", "formal_events"]
+      },
+      "bodyMeasurements": {
+        "height": 183,
+        "weight": 82,
+        "chest": 102,
+        "waist": 86,
+        "hips": 102,
+        "inseam": 84,
+        "shoeSize": 44
+      },
+      "sizeHistory": {
+        "tops": {"Bonobos": "M", "J.Crew": "L", "Everlane": "M", "Suitsupply": "40R"},
+        "bottoms": {"Bonobos": "33", "J.Crew": "34", "Everlane": "32", "Suitsupply": "33"}
+      },
+      "returnHistory": [
+        {
+          "productId": "prod_555",
+          "reason": "too_small",
+          "brand": "J.Crew",
+          "category": "shirt",
+          "sizeOrdered": "M",
+          "date": "2024-02-10"
+        }
+      ]
+    }
+  ]
+}
+

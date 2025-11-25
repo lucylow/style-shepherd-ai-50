@@ -1,0 +1,125 @@
+{
+  "products": [
+    {
+      "id": "prod_123",
+      "name": "Floral Maxi Dress with Slit",
+      "brand": "Reformation",
+      "category": "dresses",
+      "price": 248.00,
+      "originalPrice": 298.00,
+      "description": "A beautiful floral maxi dress perfect for summer weddings and events. Made from sustainable viscose.",
+      "images": [
+        "https://cdn.styleshepherd.com/products/prod_123/image1.jpg",
+        "https://cdn.styleshepherd.com/products/prod_123/image2.jpg",
+        "https://cdn.styleshepherd.com/products/prod_123/image3.jpg"
+      ],
+      "styleAttributes": {
+        "occasion": ["wedding", "summer", "formal"],
+        "fabric": "viscose",
+        "pattern": "floral",
+        "sleeveLength": "short",
+        "dressLength": "maxi",
+        "sustainability": {
+          "material": "sustainable_viscose",
+          "certifications": ["OEKO-TEX", "GOTS"],
+          "carbonFootprint": 2.1
+        }
+      },
+      "sizeChart": {
+        "2": {"bust": 81, "waist": 64, "hips": 89, "length": 142},
+        "4": {"bust": 86, "waist": 69, "hips": 94, "length": 142},
+        "6": {"bust": 91, "waist": 74, "hips": 99, "length": 142},
+        "8": {"bust": 96, "waist": 79, "hips": 104, "length": 142}
+      },
+      "returnAnalytics": {
+        "overallReturnRate": 0.18,
+        "sizeSpecificReturns": {
+          "2": 0.12,
+          "4": 0.15,
+          "6": 0.22,
+          "8": 0.25
+        },
+        "commonReturnReasons": ["too_small:45%", "style_not_as_expected:30%", "fabric_quality:15%"]
+      },
+      "inventory": {
+        "2": 15,
+        "4": 8,
+        "6": 3,
+        "8": 12
+      }
+    },
+    {
+      "id": "prod_124",
+      "name": "Linen Blend Blazer",
+      "brand": "Everlane",
+      "category": "blazers",
+      "price": 145.00,
+      "description": "A lightweight linen-cotton blazer perfect for summer business casual or smart weekend wear.",
+      "images": [
+        "https://cdn.styleshepherd.com/products/prod_124/image1.jpg"
+      ],
+      "styleAttributes": {
+        "occasion": ["work", "business_casual", "weekend"],
+        "fabric": "linen_cotton_blend",
+        "pattern": "solid",
+        "sleeveLength": "long",
+        "fit": "regular"
+      },
+      "sizeChart": {
+        "XS": {"chest": 86, "shoulder": 41, "sleeve": 61, "length": 71},
+        "S": {"chest": 91, "shoulder": 42, "sleeve": 62, "length": 72},
+        "M": {"chest": 96, "shoulder": 43, "sleeve": 63, "length": 73},
+        "L": {"chest": 102, "shoulder": 45, "sleeve": 64, "length": 74}
+      },
+      "returnAnalytics": {
+        "overallReturnRate": 0.12,
+        "sizeSpecificReturns": {
+          "XS": 0.08,
+          "S": 0.10,
+          "M": 0.15,
+          "L": 0.18
+        }
+      },
+      "inventory": {
+        "XS": 5,
+        "S": 10,
+        "M": 7,
+        "L": 4
+      }
+    },
+    {
+      "id": "prod_125",
+      "name": "High-Waist Wide Leg Trousers",
+      "brand": "Aritzia",
+      "category": "pants",
+      "price": 128.00,
+      "description": "Elegant high-waist trousers with a wide leg silhouette. Perfect for office wear or dressy occasions.",
+      "images": [
+        "https://cdn.styleshepherd.com/products/prod_125/image1.jpg"
+      ],
+      "styleAttributes": {
+        "occasion": ["work", "formal", "business_casual"],
+        "fabric": "wool_blend",
+        "pattern": "solid",
+        "rise": "high",
+        "legShape": "wide"
+      },
+      "sizeChart": {
+        "00": {"waist": 58, "hips": 83, "inseam": 94, "rise": 28},
+        "0": {"waist": 61, "hips": 86, "inseam": 94, "rise": 28},
+        "2": {"waist": 64, "hips": 89, "inseam": 94, "rise": 28},
+        "4": {"waist": 67, "hips": 94, "inseam": 94, "rise": 28}
+      },
+      "returnAnalytics": {
+        "overallReturnRate": 0.25,
+        "sizeSpecificReturns": {
+          "00": 0.15,
+          "0": 0.18,
+          "2": 0.28,
+          "4": 0.35
+        }
+      }
+    }
+  ]
+}
+

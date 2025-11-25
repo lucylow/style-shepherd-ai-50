@@ -1,0 +1,40 @@
+{
+  "conversations": [
+    {
+      "sessionId": "sess_001",
+      "userId": "user_001",
+      "timestamp": "2024-03-20T10:15:00Z",
+      "interactions": [
+        {
+          "type": "user",
+          "content": "I need an outfit for a beach wedding in Mexico next month. What do you recommend?",
+          "audioUrl": "https://cdn.styleshepherd.com/audio/user_001_query_001.mp3"
+        },
+        {
+          "type": "assistant",
+          "content": "Perfect! For a beach wedding in Mexico, I'd recommend a flowy maxi dress in a breathable fabric. Since it's a festive occasion, consider bright colors or floral patterns. Let me find some options that match your style and have low return risk.",
+          "audioUrl": "https://cdn.styleshepherd.com/audio/assistant_response_001.mp3",
+          "productsSuggested": ["prod_123", "prod_126", "prod_127"],
+          "confidence": 0.92
+        },
+        {
+          "type": "user",
+          "content": "What's my size in Reformation dresses? Last time I ordered from them, I had to return.",
+          "audioUrl": "https://cdn.styleshepherd.com/audio/user_001_query_002.mp3"
+        },
+        {
+          "type": "assistant",
+          "content": "Based on your measurements and return history, I recommend size 4 in Reformation. Their sizing runs slightly small, and size 4 should give you the perfect fit through the bust and waist while accommodating your hips comfortably. This has an 88% confidence score based on similar users with your body type.",
+          "audioUrl": "https://cdn.styleshepherd.com/audio/assistant_response_002.mp3",
+          "sizeRecommendation": {
+            "brand": "Reformation",
+            "recommendedSize": "4",
+            "confidence": 0.88,
+            "reasoning": "Matches bust measurement with room for hips"
+          }
+        }
+      ]
+    }
+  ]
+}
+

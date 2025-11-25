@@ -1,0 +1,67 @@
+{
+  "orders": [
+    {
+      "orderId": "ord_001",
+      "userId": "user_001",
+      "timestamp": "2024-03-20T11:30:00Z",
+      "status": "delivered",
+      "items": [
+        {
+          "productId": "prod_123",
+          "size": "4",
+          "quantity": 1,
+          "price": 248.00,
+          "returnPrediction": {
+            "prePurchaseRisk": 0.15,
+            "actualOutcome": "kept",
+            "accuracy": "correct"
+          }
+        }
+      ],
+      "total": 248.00,
+      "shipping": {
+        "address": "123 Main St, San Francisco, CA 94102",
+        "carrier": "UPS",
+        "trackingNumber": "1Z1234567890123456"
+      },
+      "sustainabilityImpact": {
+        "carbonSaved": 3.2,
+        "packagingWasteSaved": 1.1,
+        "waterSaved": 45
+      }
+    },
+    {
+      "orderId": "ord_002",
+      "userId": "user_001",
+      "timestamp": "2024-02-15T14:22:00Z",
+      "status": "returned",
+      "items": [
+        {
+          "productId": "prod_125",
+          "size": "2",
+          "quantity": 1,
+          "price": 128.00,
+          "returnPrediction": {
+            "prePurchaseRisk": 0.65,
+            "actualOutcome": "returned",
+            "accuracy": "correct",
+            "returnReason": "fit_issues"
+          }
+        }
+      ],
+      "total": 128.00
+    }
+  ],
+  "paymentIntents": [
+    {
+      "id": "pi_001",
+      "orderId": "ord_001",
+      "amount": 24800,
+      "currency": "usd",
+      "status": "succeeded",
+      "paymentMethod": "card_visa",
+      "riskScore": 0.12
+    }
+  ]
+}
+

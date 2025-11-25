@@ -1,0 +1,87 @@
+{
+  "returnPredictions": [
+    {
+      "userId": "user_001",
+      "productId": "prod_123",
+      "size": "4",
+      "prediction": {
+        "riskScore": 0.15,
+        "riskLevel": "low",
+        "confidence": 0.92,
+        "primaryFactors": [
+          {
+            "factor": "brand_size_match",
+            "impact": "high",
+            "details": "Good match with Reformation sizing based on history"
+          },
+          {
+            "factor": "style_preference",
+            "impact": "medium",
+            "details": "Matches preferred occasion and color palette"
+          },
+          {
+            "factor": "fabric_compatibility",
+            "impact": "low",
+            "details": "Viscose works well with similar items in wardrobe"
+          }
+        ],
+        "mitigationStrategies": [
+          "Consider ordering your usual size 4",
+          "Fabric has 2% stretch for comfort",
+          "Free returns available if needed"
+        ]
+      }
+    },
+    {
+      "userId": "user_001",
+      "productId": "prod_125",
+      "size": "2",
+      "prediction": {
+        "riskScore": 0.65,
+        "riskLevel": "high",
+        "confidence": 0.87,
+        "primaryFactors": [
+          {
+            "factor": "fit_uncertainty",
+            "impact": "high",
+            "details": "Wide leg style may not work with your height"
+          },
+          {
+            "factor": "fabric_concern",
+            "impact": "medium",
+            "details": "Wool blend may be too warm for intended use"
+          },
+          {
+            "factor": "style_experimentation",
+            "impact": "medium",
+            "details": "Different from usual slim fit preference"
+          }
+        ],
+        "mitigationStrategies": [
+          "Consider size 0 for better proportion",
+          "Look at similar styles in more familiar fits",
+          "Check the tailored wide-leg options instead"
+        ]
+      }
+    }
+  ],
+  "userAnalytics": {
+    "userId": "user_001",
+    "metrics": {
+      "totalOrders": 24,
+      "totalReturns": 6,
+      "returnRate": 0.25,
+      "savingsWithStyleShepherd": 0.72,
+      "projectedAnnualSavings": 420.00,
+      "carbonFootprintReduction": 18.6,
+      "timeSaved": 8.5
+    },
+    "styleEvolution": {
+      "confidenceImprovement": 0.45,
+      "sizeAccuracyImprovement": 0.68,
+      "discoveredStyles": ["wide_leg", "statement_sleeves", "sustainable_materials"],
+      "abandonedStyles": ["bodycon", "crop_tops", "animal_print"]
+    }
+  }
+}
+

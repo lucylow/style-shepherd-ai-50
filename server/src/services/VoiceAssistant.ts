@@ -6,13 +6,14 @@
 
 import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
 import env from '../config/env.js';
-import { userMemory } from '../lib/raindrop-config.js';
+import { userMemory, orderSQL, productBuckets, styleInference } from '../lib/raindrop-config.js';
 import { vultrValkey } from '../lib/vultr-valkey.js';
 import { ttsService } from './TTSService.js';
 import { aiDataFlowOrchestrator, AIRequest } from './AIDataFlowOrchestrator.js';
 import { conversationMemoryOptimizer, ConversationMessage } from './ConversationMemoryOptimizer.js';
 import { llmService } from './LLMService.js';
 import { sttService } from './STTService.js';
+import { productRecommendationAPI } from './ProductRecommendationAPI.js';
 import { createHash } from 'crypto';
 import { Readable } from 'stream';
 import {
@@ -74,6 +75,8 @@ export interface VoiceSettings {
   similarityBoost: number;
   style?: number;
   useSpeakerBoost?: boolean;
+  emotion?: 'empathetic' | 'energetic' | 'reassuring' | 'playful' | 'professional';
+  context?: 'support' | 'shopping' | 'advice' | 'confirmation';
 }
 
 export interface UserVoicePreferences {
@@ -90,12 +93,28 @@ export interface STTResult {
   source: 'openai' | 'elevenlabs' | 'fallback';
 }
 
+export interface UserProfile {
+  userId: string;
+  voicePreference?: string;
+  sizePreferences?: Record<string, string>;
+  preferences?: {
+    favoriteColors?: string[];
+    preferredStyles?: string[];
+    preferredBrands?: string[];
+  };
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface IntentAnalysis {
   intent: string;
   entities: Record<string, any>;
   confidence: number;
   sentiment?: 'positive' | 'neutral' | 'negative';
   context?: Record<string, any>;
+  emotion?: 'empathetic' | 'energetic' | 'reassuring' | 'playful' | 'professional';
+  requiresFollowUp?: boolean;
+  suggestedActions?: string[];
 }
 
 export class VoiceAssistant {
@@ -154,37 +173,79 @@ export class VoiceAssistant {
    */
   async startConversation(userId: string): Promise<ConversationState> {
     try {
+      // Validate userId
+      if (!userId || typeof userId !== 'string' || userId.trim().length === 0) {
+        throw new ValidationError('Invalid userId: must be a non-empty string', {
+          field: 'userId',
+          value: userId,
+        });
+      }
+
+      const sanitizedUserId = userId.trim();
+
       // Get user voice profile and preferences from SmartMemory
-      const userProfile = await this.getOrCreateUserProfile(userId);
+      let userProfile: UserProfile | null = null;
+      try {
+        userProfile = await this.getOrCreateUserProfile(sanitizedUserId);
+      } catch (error) {
+        const appError = toAppError(error);
+        console.warn('Failed to get/create user profile, continuing with defaults:', {
+          userId: sanitizedUserId,
+          error: appError.message,
+        });
+        userProfile = null;
+      }
       
       // Get user voice preferences
-      const preferences = await this.getUserVoicePreferences(userId);
+      let preferences: UserVoicePreferences = {};
+      try {
+        preferences = await this.getUserVoicePreferences(sanitizedUserId);
+      } catch (error) {
+        const appError = toAppError(error);
+        console.warn('Failed to get user voice preferences, using defaults:', {
+          userId: sanitizedUserId,
+          error: appError.message,
+        });
+        preferences = {};
+      }
       
-      // Determine voice settings from user preferences
-      const voiceSettings: VoiceSettings = {
+      // Determine voice settings from user preferences (with validation)
+      const voiceSettings = this.validateVoiceSettings({
         voiceId: preferences.voicePreference || userProfile?.voicePreference || this.DEFAULT_VOICE_ID,
         modelId: this.DEFAULT_MODEL,
         stability: 0.5,
         similarityBoost: 0.8,
         style: 0.5,
         useSpeakerBoost: true,
-      };
+      });
 
       // Create conversation ID
-      const conversationId = `conv_${userId}_${Date.now()}`;
+      const conversationId = `conv_${sanitizedUserId}_${Date.now()}`;
       
       // Store voice settings for this conversation in cache
+      try {
         if (this.client) {
           await vultrValkey.set(
             `conversation:${conversationId}:settings`,
-          voiceSettings,
-          3600 // 1 hour TTL
-        );
+            voiceSettings,
+            3600 // 1 hour TTL
+          );
+        }
+      } catch (error) {
+        const appError = toAppError(error);
+        if (appError instanceof CacheConnectionError || appError instanceof CacheError) {
+          console.warn('Failed to cache voice settings, continuing without cache:', appError.message);
+        } else {
+          throw new CacheError('Failed to store conversation voice settings', error as Error, {
+            conversationId,
+            operation: 'cache-voice-settings',
+          });
+        }
       }
 
       const state: ConversationState = {
         conversationId,
-        userId,
+        userId: sanitizedUserId,
         context: {
           sessionStart: Date.now(),
           messageCount: 0,
@@ -194,16 +255,40 @@ export class VoiceAssistant {
       };
 
       // Cache conversation state in Valkey for fast access
-      await vultrValkey.set(
-        `conversation:${userId}`,
-        state,
-        3600 // 1 hour TTL
-      );
+      try {
+        await vultrValkey.set(
+          `conversation:${sanitizedUserId}`,
+          state,
+          3600 // 1 hour TTL
+        );
+      } catch (error) {
+        const appError = toAppError(error);
+        if (appError instanceof CacheConnectionError || appError instanceof CacheError) {
+          console.warn('Failed to cache conversation state, continuing without cache:', appError.message);
+        } else {
+          throw new CacheError('Failed to store conversation state', error as Error, {
+            userId: sanitizedUserId,
+            conversationId,
+            operation: 'cache-conversation-state',
+          });
+        }
+      }
 
       return state;
     } catch (error) {
-      console.error('Failed to start conversation:', error);
-      throw error;
+      if (isAppError(error)) {
+        throw error;
+      }
+      
+      const appError = toAppError(error);
+      throw new VoiceServiceError(
+        'Failed to start conversation',
+        error as Error,
+        {
+          userId,
+          operation: 'start-conversation',
+        }
+      );
     }
   }
 
@@ -439,18 +524,56 @@ export class VoiceAssistant {
         conversationHistory = [];
       }
 
-        // Enhanced intent and entity extraction using LLM (with fallback)
+        // Enhanced intent and entity extraction using SmartInference (preferred) or LLM (fallback)
       let intentAnalysis: IntentAnalysis;
       try {
-        intentAnalysis = await llmService.extractIntentAndEntities(
-          textQuery,
-          conversationHistory,
-          userProfile
-        );
+        // Try SmartInference first for better accuracy and lower latency
+        try {
+          if (styleInference && typeof styleInference.predict === 'function') {
+            const inferenceResult = await styleInference.predict({
+              utterance: textQuery,
+              context: {
+                conversationHistory: conversationHistory.slice(-5),
+                userProfile: userProfile ? { userId: userProfile.userId, preferences: userProfile.preferences } : null,
+                sessionContext: state?.context || {},
+              },
+              model: 'intent-analysis-model',
+            });
+            
+            // Map SmartInference result to IntentAnalysis format
+            intentAnalysis = {
+              intent: inferenceResult.intent || 'general_question',
+              entities: inferenceResult.entities || {},
+              confidence: inferenceResult.confidence || 0.7,
+              sentiment: inferenceResult.sentiment || 'neutral',
+              emotion: inferenceResult.emotion || this.determineEmotionFromIntent(inferenceResult.intent, inferenceResult.sentiment),
+              requiresFollowUp: inferenceResult.requiresFollowUp || false,
+              suggestedActions: inferenceResult.suggestedActions || [],
+              context: inferenceResult.context || {},
+            };
+            console.log('✅ Intent extracted via SmartInference');
+          } else {
+            throw new Error('SmartInference not available');
+          }
+        } catch (inferenceError) {
+          // Fallback to LLM service
+          console.warn('SmartInference failed, using LLM fallback:', inferenceError);
+          const llmResult = await llmService.extractIntentAndEntities(
+            textQuery,
+            conversationHistory,
+            userProfile
+          );
+          intentAnalysis = {
+            ...llmResult,
+            emotion: this.determineEmotionFromIntent(llmResult.intent, llmResult.sentiment),
+            requiresFollowUp: this.requiresFollowUp(llmResult.intent),
+            suggestedActions: this.getSuggestedActions(llmResult.intent, llmResult.entities),
+          };
+        }
       } catch (error) {
         const appError = toAppError(error);
         throw new ExternalServiceError(
-          'LLMService',
+          'IntentExtraction',
           `Failed to extract intent and entities: ${appError.message}`,
           error as Error,
           {
@@ -538,8 +661,9 @@ export class VoiceAssistant {
           }
         }
 
-        // Get voice settings for TTS (with validation)
-        const voiceSettings = this.validateVoiceSettings(
+        // Get emotion-aware voice settings for TTS (with validation)
+        const voiceSettings = this.getEmotionAwareVoiceSettings(
+          intentAnalysis,
           state?.voiceSettings || {
             voiceId: state?.preferences?.voicePreference || this.DEFAULT_VOICE_ID,
             modelId: this.DEFAULT_MODEL,
@@ -1282,27 +1406,59 @@ export class VoiceAssistant {
 
       return {};
     } catch (error) {
-      console.error('Failed to get user voice preferences:', error);
+      const appError = toAppError(error);
+      console.warn('Failed to get user voice preferences, returning empty preferences:', {
+        userId,
+        error: appError.message,
+        code: appError.code,
+      });
+      // Return empty preferences as fallback - non-critical
       return {};
     }
   }
 
   /**
-   * Get or create user profile
+   * Get or create user profile (with validation)
    */
-  private async getOrCreateUserProfile(userId: string): Promise<any> {
+  private async getOrCreateUserProfile(userId: string): Promise<UserProfile | null> {
     try {
-      let profile = await userMemory.get(userId);
+      if (!userId || typeof userId !== 'string' || userId.trim().length === 0) {
+        console.error('Invalid userId provided to getOrCreateUserProfile');
+        return null;
+      }
+      
+      let profile = await userMemory.get(userId) as UserProfile | null;
       if (!profile) {
         profile = {
-          userId,
+          userId: userId.trim(),
           createdAt: new Date().toISOString(),
         };
-        await userMemory.set(userId, profile);
+        try {
+          await userMemory.set(userId, profile);
+        } catch (setError) {
+          const appError = toAppError(setError);
+          console.warn('Failed to save new user profile to memory:', {
+            userId,
+            error: appError.message,
+          });
+          // Still return the profile even if saving fails
+        }
       }
+      
+      // Validate and normalize profile data
+      if (profile && profile.voicePreference && !this.isValidVoiceId(profile.voicePreference)) {
+        console.warn(`Invalid voice preference in profile for user ${userId}, removing`);
+        delete profile.voicePreference;
+      }
+      
       return profile;
     } catch (error) {
-      console.error('Failed to get/create user profile:', error);
+      const appError = toAppError(error);
+      console.error('Failed to get/create user profile:', {
+        userId,
+        error: appError.message,
+        code: appError.code,
+      });
       return null;
     }
   }
@@ -1432,7 +1588,14 @@ export class VoiceAssistant {
       
       return fullHistory.slice(-limit);
     } catch (error) {
-      console.error('Failed to get conversation history:', error);
+      const appError = toAppError(error);
+      console.warn('Failed to get conversation history, returning empty array:', {
+        userId,
+        limit,
+        error: appError.message,
+        code: appError.code,
+      });
+      // Return empty array as fallback - non-critical
       return [];
     }
   }
@@ -1641,12 +1804,39 @@ export class VoiceAssistant {
   async endConversation(conversationId: string, userId?: string): Promise<void> {
     try {
       if (userId) {
-        await vultrValkey.delete(`conversation:${userId}`);
-        await vultrValkey.delete(`conversation:${conversationId}:settings`);
+        try {
+          await vultrValkey.delete(`conversation:${userId}`);
+        } catch (error) {
+          const appError = toAppError(error);
+          console.warn('Failed to delete conversation state from cache:', {
+            userId,
+            error: appError.message,
+          });
+          // Continue - non-critical cleanup operation
+        }
+        
+        try {
+          await vultrValkey.delete(`conversation:${conversationId}:settings`);
+        } catch (error) {
+          const appError = toAppError(error);
+          console.warn('Failed to delete conversation settings from cache:', {
+            conversationId,
+            userId,
+            error: appError.message,
+          });
+          // Continue - non-critical cleanup operation
+        }
       }
       // ElevenLabs conversations are stateless, no cleanup needed
     } catch (error) {
-      console.error('Failed to end conversation:', error);
+      const appError = toAppError(error);
+      console.warn('Failed to end conversation (non-critical):', {
+        conversationId,
+        userId,
+        error: appError.message,
+        code: appError.code,
+      });
+      // Don't throw - cleanup failures are non-critical
     }
   }
 
@@ -1712,6 +1902,13 @@ export class VoiceAssistant {
    */
   private clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max);
+  }
+
+  /**
+   * Validate voice ID
+   */
+  private isValidVoiceId(voiceId: string): boolean {
+    return this.VALID_VOICE_IDS.includes(voiceId);
   }
 
   /**
