@@ -134,7 +134,12 @@ export async function createOrderWithPersistence(
   // 2. Create order in PostgreSQL (persistent storage)
   const order = await vultrPostgres.createOrder({
     user_id: userId,
-    items,
+    items: items.map(item => ({
+      product_id: item.productId,
+      quantity: item.quantity,
+      price: item.price,
+      size: item.size,
+    })),
     total_amount: totalAmount,
     status: 'pending',
   });
