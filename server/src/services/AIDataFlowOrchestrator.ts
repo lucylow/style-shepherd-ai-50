@@ -634,7 +634,7 @@ export class AIDataFlowOrchestrator {
   async clearCache(pattern?: string): Promise<void> {
     if (pattern) {
       // Clear matching keys from in-memory cache
-      for (const key of this.requestCache.keys()) {
+      for (const key of Array.from(this.requestCache.keys())) {
         if (key.includes(pattern)) {
           this.requestCache.delete(key);
         }

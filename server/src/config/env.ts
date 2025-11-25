@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod';
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 
 dotenv.config();
 

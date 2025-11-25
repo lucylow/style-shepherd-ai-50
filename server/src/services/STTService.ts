@@ -6,7 +6,7 @@
 
 import OpenAI from 'openai';
 import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
-import FormData from 'form-data';
+import FormData = require('form-data');
 import env from '../config/env.js';
 
 export interface STTResult {

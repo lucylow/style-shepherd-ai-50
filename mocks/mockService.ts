@@ -34,41 +34,166 @@ export interface MockInvoice {
   customer: string;
   amount_due: number;
   currency: string;
-  status: string;
+  status: 'draft' | 'open' | 'paid' | 'uncollectible' | 'void';
   metadata?: Record<string, string>;
+  created_at?: string;
+  description?: string;
+}
+
+export interface PaymentIntentData {
+  id: string;
+  client_secret: string;
+  amount: number;
+  currency: string;
+  status: 'requires_payment_method' | 'requires_confirmation' | 'requires_action' | 'processing' | 'requires_capture' | 'canceled' | 'succeeded';
+  metadata: Record<string, string>;
+  created: number;
 }
 
 export class MockPaymentService {
-  private paymentIntents: Map<string, any> = new Map();
-  private orders: Map<string, any> = new Map();
+  private paymentIntents: Map<string, PaymentIntentData> = new Map();
+  private orders: Map<string, Order> = new Map();
+  private invoices: Map<string, MockInvoice> = new Map();
+  private readonly STORAGE_KEY = 'mock_payment_service_data';
+  private readonly PERSIST_TO_STORAGE = typeof window !== 'undefined' && typeof localStorage !== 'undefined';
+
+  constructor() {
+    this.loadFromStorage();
+  }
 
   /**
-   * Create a mock payment intent
+   * Load data from localStorage if available
+   */
+  private loadFromStorage(): void {
+    if (!this.PERSIST_TO_STORAGE) return;
+
+    try {
+      const stored = localStorage.getItem(this.STORAGE_KEY);
+      if (stored) {
+        const data = JSON.parse(stored);
+        if (data.paymentIntents) {
+          this.paymentIntents = new Map(data.paymentIntents);
+        }
+        if (data.orders) {
+          this.orders = new Map(data.orders);
+        }
+        if (data.invoices) {
+          this.invoices = new Map(data.invoices);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load mock payment service data from storage:', error);
+    }
+  }
+
+  /**
+   * Save data to localStorage
+   */
+  private saveToStorage(): void {
+    if (!this.PERSIST_TO_STORAGE) return;
+
+    try {
+      const data = {
+        paymentIntents: Array.from(this.paymentIntents.entries()),
+        orders: Array.from(this.orders.entries()),
+        invoices: Array.from(this.invoices.entries()),
+      };
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(data));
+    } catch (error) {
+      console.warn('Failed to save mock payment service data to storage:', error);
+    }
+  }
+
+  /**
+   * Generate realistic return prediction based on order
+   */
+  private generateReturnPrediction(order: Order): {
+    score: number;
+    riskLevel: 'low' | 'medium' | 'high';
+    factors: string[];
+    suggestions: string[];
+  } {
+    // Simulate realistic return prediction logic
+    let score = 0.3; // Base return risk
+    const factors: string[] = [];
+    const suggestions: string[] = [];
+
+    // Adjust based on order value (higher value = slightly higher risk)
+    if (order.totalAmount > 200) {
+      score += 0.1;
+      factors.push('Higher order value');
+    }
+
+    // Adjust based on number of items (more items = slightly higher risk)
+    const itemCount = order.items?.length || 0;
+    if (itemCount > 3) {
+      score += 0.05;
+      factors.push('Multiple items in order');
+    }
+
+    // Random variation for realism
+    score += (Math.random() - 0.5) * 0.2;
+    score = Math.max(0.05, Math.min(0.95, score)); // Clamp between 5% and 95%
+
+    // Determine risk level
+    let riskLevel: 'low' | 'medium' | 'high';
+    if (score < 0.3) {
+      riskLevel = 'low';
+      factors.push('Good size match', 'Style alignment');
+      suggestions.push('This order has good compatibility with your profile');
+    } else if (score < 0.6) {
+      riskLevel = 'medium';
+      factors.push('Moderate size confidence', 'Some style variation');
+      suggestions.push('Consider reviewing size charts before ordering');
+    } else {
+      riskLevel = 'high';
+      factors.push('Size uncertainty', 'Style mismatch risk');
+      suggestions.push('We recommend double-checking measurements', 'Consider ordering multiple sizes');
+    }
+
+    return {
+      score: Math.round(score * 100) / 100,
+      riskLevel,
+      factors,
+      suggestions,
+    };
+  }
+
+  /**
+   * Create a mock payment intent with realistic data
    */
   async createPaymentIntent(order: Order): Promise<MockPaymentIntent> {
-    const paymentIntentId = `pi_mock_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const clientSecret = `${paymentIntentId}_secret_mock`;
+    if (!order || !order.userId) {
+      throw new Error('Invalid order: userId is required');
+    }
+
+    const timestamp = Date.now();
+    const randomSuffix = Math.random().toString(36).substring(2, 11);
+    const paymentIntentId = `pi_mock_${timestamp}_${randomSuffix}`;
+    const clientSecret = `${paymentIntentId}_secret_mock_${randomSuffix}`;
+    const orderId = order.orderId || `order_${timestamp}`;
     
-    // Store for later retrieval
-    this.paymentIntents.set(paymentIntentId, {
+    // Store payment intent
+    const paymentIntentData: PaymentIntentData = {
       id: paymentIntentId,
       client_secret: clientSecret,
-      amount: Math.round(order.totalAmount * 100),
-      currency: 'usd',
+      amount: Math.round(order.totalAmount * 100), // Convert to cents
+      currency: order.currency || 'usd',
       status: 'requires_payment_method',
       metadata: {
         userId: order.userId,
-        orderId: `order_${Date.now()}`,
+        orderId,
+        integration: 'style-shepherd',
       },
-    });
-
-    // Mock return prediction
-    const returnPrediction = {
-      score: 0.25,
-      riskLevel: 'low' as const,
-      factors: ['Good size match', 'Style alignment'],
-      suggestions: ['This order has good compatibility with your profile'],
+      created: Math.floor(timestamp / 1000),
     };
+
+    this.paymentIntents.set(paymentIntentId, paymentIntentData);
+    this.orders.set(orderId, order);
+    this.saveToStorage();
+
+    // Generate realistic return prediction
+    const returnPrediction = this.generateReturnPrediction(order);
 
     return {
       clientSecret,

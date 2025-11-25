@@ -45,19 +45,85 @@ export interface ReturnPrediction {
   suggestions: string[];
 }
 
+interface CustomerCache {
+  customerId: string;
+  timestamp: number;
+}
+
 export class PaymentService {
   private stripe: Stripe;
+  private customerCache: Map<string, CustomerCache> = new Map();
+  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  private readonly MAX_RETRIES = 3;
+  private readonly RETRY_DELAY = 1000; // 1 second
 
   constructor() {
     this.stripe = new Stripe(env.STRIPE_SECRET_KEY, {
       apiVersion: '2023-10-16',
+      maxNetworkRetries: 2,
+      timeout: 30000,
     });
+  }
+
+  /**
+   * Retry wrapper for Stripe API calls
+   */
+  private async retryStripeCall<T>(
+    operation: () => Promise<T>,
+    operationName: string,
+    retries: number = this.MAX_RETRIES
+  ): Promise<T> {
+    let lastError: any;
+    
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        return await operation();
+      } catch (error: any) {
+        lastError = error;
+        
+        // Don't retry on certain errors
+        if (error.type === 'StripeCardError' || error.type === 'StripeInvalidRequestError') {
+          throw error;
+        }
+        
+        // Exponential backoff
+        if (attempt < retries - 1) {
+          const delay = this.RETRY_DELAY * Math.pow(2, attempt);
+          console.warn(`Retrying ${operationName} (attempt ${attempt + 1}/${retries}) after ${delay}ms`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    
+    throw lastError;
+  }
+
+  /**
+   * Log payment operation for metrics
+   */
+  private logPaymentOperation(
+    operation: string,
+    metadata: Record<string, any>,
+    success: boolean = true
+  ): void {
+    const logData = {
+      timestamp: new Date().toISOString(),
+      operation,
+      success,
+      ...metadata,
+    };
+    
+    if (success) {
+      console.log(`[Payment] ${operation}:`, JSON.stringify(logData));
+    } else {
+      console.error(`[Payment] ${operation} failed:`, JSON.stringify(logData));
+    }
   }
 
   /**
    * Create a payment intent
    */
-  async createPaymentIntent(order: Order): Promise<{
+  async createPaymentIntent(order: Order, idempotencyKey?: string): Promise<{
     clientSecret: string;
     paymentIntentId: string;
     returnPrediction: ReturnPrediction;
@@ -77,20 +143,45 @@ export class PaymentService {
       // Calculate return risk before payment
       const returnPrediction = await this.createReturnPrediction(order);
 
-      // Create Stripe payment intent
-      const paymentIntent = await this.stripe.paymentIntents.create({
-        amount: Math.round(order.totalAmount * 100), // Convert to cents
-        currency: 'usd',
-        metadata: {
-          userId: order.userId,
-          orderId: `order_${Date.now()}`,
-          returnRiskScore: returnPrediction.score.toString(),
+      // Get or create customer
+      const customerId = await this.getOrCreateCustomer(order.userId);
+
+      // Create Stripe payment intent with retry logic
+      const paymentIntent = await this.retryStripeCall(
+        () => {
+          const params: Stripe.PaymentIntentCreateParams = {
+            amount: Math.round(order.totalAmount * 100), // Convert to cents
+            currency: 'usd',
+            customer: customerId,
+            automatic_payment_methods: { enabled: true },
+            metadata: {
+              userId: order.userId,
+              orderId: `order_${Date.now()}`,
+              returnRiskScore: returnPrediction.score.toString(),
+              integration: 'style-shepherd',
+            },
+          };
+
+          const options: Stripe.RequestOptions = {};
+          if (idempotencyKey) {
+            options.idempotencyKey = idempotencyKey;
+          }
+
+          return this.stripe.paymentIntents.create(params, options);
         },
-      });
+        'createPaymentIntent'
+      );
 
       if (!paymentIntent.client_secret) {
         throw new PaymentError('Failed to create payment intent - no client secret returned');
       }
+
+      this.logPaymentOperation('createPaymentIntent', {
+        paymentIntentId: paymentIntent.id,
+        userId: order.userId,
+        amount: order.totalAmount,
+        returnRiskScore: returnPrediction.score,
+      });
 
       return {
         clientSecret: paymentIntent.client_secret,
@@ -98,6 +189,12 @@ export class PaymentService {
         returnPrediction,
       };
     } catch (error: any) {
+      this.logPaymentOperation('createPaymentIntent', {
+        userId: order.userId,
+        amount: order.totalAmount,
+        error: error.message,
+      }, false);
+
       if (error instanceof PaymentError || error instanceof BusinessLogicError) {
         throw error;
       }
@@ -317,39 +414,86 @@ export class PaymentService {
   }
 
   /**
-   * Create or retrieve Stripe customer
+   * Create or retrieve Stripe customer with caching
    */
   async getOrCreateCustomer(userId: string, email?: string): Promise<string> {
     try {
+      // Check cache first
+      const cached = this.customerCache.get(userId);
+      if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+        return cached.customerId;
+      }
+
       // Check if customer exists in database
       const existing = await vultrPostgres.query(
-        'SELECT stripe_customer_id FROM users WHERE user_id = $1',
+        'SELECT stripe_customer_id, email FROM users WHERE user_id = $1',
         [userId]
       );
 
       if (existing.length > 0 && existing[0].stripe_customer_id) {
-        return existing[0].stripe_customer_id;
+        const customerId = existing[0].stripe_customer_id;
+        
+        // Update cache
+        this.customerCache.set(userId, {
+          customerId,
+          timestamp: Date.now(),
+        });
+
+        // Update email if provided and different
+        if (email && existing[0].email !== email) {
+          try {
+            await this.stripe.customers.update(customerId, { email });
+            await vultrPostgres.query(
+              'UPDATE users SET email = $1 WHERE user_id = $2',
+              [email, userId]
+            );
+          } catch (updateError) {
+            console.warn('Failed to update customer email:', updateError);
+          }
+        }
+
+        return customerId;
       }
 
-      // Create new Stripe customer
-      const customer = await this.stripe.customers.create({
-        email,
-        metadata: {
-          userId,
-          integration: 'style-shepherd',
-        },
-      });
+      // Create new Stripe customer with retry
+      const customer = await this.retryStripeCall(
+        () => this.stripe.customers.create({
+          email,
+          metadata: {
+            userId,
+            integration: 'style-shepherd',
+          },
+        }),
+        'createCustomer'
+      );
 
       // Store in database
       await vultrPostgres.query(
         `INSERT INTO users (user_id, stripe_customer_id, email, created_at)
          VALUES ($1, $2, $3, $4)
-         ON CONFLICT (user_id) DO UPDATE SET stripe_customer_id = $2`,
+         ON CONFLICT (user_id) DO UPDATE SET stripe_customer_id = $2, email = $3`,
         [userId, customer.id, email || null, new Date().toISOString()]
       );
 
+      // Update cache
+      this.customerCache.set(userId, {
+        customerId: customer.id,
+        timestamp: Date.now(),
+      });
+
+      this.logPaymentOperation('createCustomer', {
+        userId,
+        customerId: customer.id,
+        email: email || 'none',
+      });
+
       return customer.id;
     } catch (error: any) {
+      this.logPaymentOperation('createCustomer', {
+        userId,
+        email: email || 'none',
+        error: error.message,
+      }, false);
       throw new ExternalServiceError('Stripe', 'Failed to create customer', error);
     }
   }
@@ -546,73 +690,223 @@ export class PaymentService {
     paymentIntentId: string;
     returnPrediction: ReturnPrediction;
   }> {
+    return this.createPaymentIntent(order, idempotencyKey);
+  }
+
+  /**
+   * Get saved payment methods for a customer
+   */
+  async getPaymentMethods(userId: string): Promise<Stripe.PaymentMethod[]> {
     try {
-      const returnPrediction = await this.createReturnPrediction(order);
-      const customerId = await this.getOrCreateCustomer(order.userId);
+      const customerId = await this.getOrCreateCustomer(userId);
+      
+      const paymentMethods = await this.stripe.paymentMethods.list({
+        customer: customerId,
+        type: 'card',
+      });
 
-      const paymentIntent = await this.stripe.paymentIntents.create(
-        {
-          amount: Math.round(order.totalAmount * 100),
-          currency: 'usd',
-          customer: customerId,
-          metadata: {
-            userId: order.userId,
-            orderId: `order_${Date.now()}`,
-            returnRiskScore: returnPrediction.score.toString(),
-            integration: 'style-shepherd',
-          },
-          automatic_payment_methods: { enabled: true },
-        },
-        {
-          idempotencyKey,
-        }
-      );
+      this.logPaymentOperation('getPaymentMethods', {
+        userId,
+        count: paymentMethods.data.length,
+      });
 
-      if (!paymentIntent.client_secret) {
-        throw new PaymentError('Failed to create payment intent - no client secret returned');
-      }
-
-      return {
-        clientSecret: paymentIntent.client_secret,
-        paymentIntentId: paymentIntent.id,
-        returnPrediction,
-      };
+      return paymentMethods.data;
     } catch (error: any) {
-      if (error instanceof PaymentError || error instanceof BusinessLogicError) {
-        throw error;
-      }
-      throw new ExternalServiceError('Stripe', 'Failed to create payment intent', error);
+      this.logPaymentOperation('getPaymentMethods', {
+        userId,
+        error: error.message,
+      }, false);
+      throw new ExternalServiceError('Stripe', 'Failed to retrieve payment methods', error);
     }
   }
 
   /**
-   * Process refund
+   * Attach payment method to customer
+   */
+  async attachPaymentMethod(
+    userId: string,
+    paymentMethodId: string
+  ): Promise<Stripe.PaymentMethod> {
+    try {
+      const customerId = await this.getOrCreateCustomer(userId);
+      
+      const paymentMethod = await this.stripe.paymentMethods.attach(paymentMethodId, {
+        customer: customerId,
+      });
+
+      // Set as default if no default exists
+      const customer = await this.stripe.customers.retrieve(customerId);
+      if (!customer.deleted && !customer.invoice_settings?.default_payment_method) {
+        await this.stripe.customers.update(customerId, {
+          invoice_settings: {
+            default_payment_method: paymentMethodId,
+          },
+        });
+      }
+
+      this.logPaymentOperation('attachPaymentMethod', {
+        userId,
+        paymentMethodId,
+      });
+
+      return paymentMethod;
+    } catch (error: any) {
+      this.logPaymentOperation('attachPaymentMethod', {
+        userId,
+        paymentMethodId,
+        error: error.message,
+      }, false);
+      throw new ExternalServiceError('Stripe', 'Failed to attach payment method', error);
+    }
+  }
+
+  /**
+   * Detach payment method from customer
+   */
+  async detachPaymentMethod(paymentMethodId: string): Promise<void> {
+    try {
+      await this.stripe.paymentMethods.detach(paymentMethodId);
+      
+      this.logPaymentOperation('detachPaymentMethod', {
+        paymentMethodId,
+      });
+    } catch (error: any) {
+      this.logPaymentOperation('detachPaymentMethod', {
+        paymentMethodId,
+        error: error.message,
+      }, false);
+      throw new ExternalServiceError('Stripe', 'Failed to detach payment method', error);
+    }
+  }
+
+  /**
+   * Set default payment method for customer
+   */
+  async setDefaultPaymentMethod(
+    userId: string,
+    paymentMethodId: string
+  ): Promise<void> {
+    try {
+      const customerId = await this.getOrCreateCustomer(userId);
+      
+      await this.stripe.customers.update(customerId, {
+        invoice_settings: {
+          default_payment_method: paymentMethodId,
+        },
+      });
+
+      this.logPaymentOperation('setDefaultPaymentMethod', {
+        userId,
+        paymentMethodId,
+      });
+    } catch (error: any) {
+      this.logPaymentOperation('setDefaultPaymentMethod', {
+        userId,
+        paymentMethodId,
+        error: error.message,
+      }, false);
+      throw new ExternalServiceError('Stripe', 'Failed to set default payment method', error);
+    }
+  }
+
+  /**
+   * Process refund with better error handling
    */
   async createRefund(
     paymentIntentId: string,
     amount?: number,
-    reason?: 'duplicate' | 'fraudulent' | 'requested_by_customer'
-  ): Promise<{ refundId: string }> {
+    reason?: 'duplicate' | 'fraudulent' | 'requested_by_customer',
+    metadata?: Record<string, string>
+  ): Promise<{ refundId: string; amount: number; status: string }> {
     try {
+      // Verify payment intent exists and is refundable
+      const paymentIntent = await this.stripe.paymentIntents.retrieve(paymentIntentId);
+      
+      if (paymentIntent.status !== 'succeeded') {
+        throw new PaymentError(
+          `Payment intent ${paymentIntentId} is not in a refundable state: ${paymentIntent.status}`,
+          undefined,
+          { paymentIntentId, status: paymentIntent.status }
+        );
+      }
+
       const refundParams: Stripe.RefundCreateParams = {
         payment_intent: paymentIntentId,
         reason,
+        metadata: metadata || {},
       };
 
       if (amount) {
-        refundParams.amount = Math.round(amount * 100);
+        const amountCents = Math.round(amount * 100);
+        if (amountCents > paymentIntent.amount) {
+          throw new BusinessLogicError(
+            'Refund amount cannot exceed payment amount',
+            ErrorCode.VALIDATION_ERROR,
+            { requestedAmount: amount, paymentAmount: paymentIntent.amount / 100 }
+          );
+        }
+        refundParams.amount = amountCents;
       }
 
-      const refund = await this.stripe.refunds.create(refundParams);
+      const refund = await this.retryStripeCall(
+        () => this.stripe.refunds.create(refundParams),
+        'createRefund'
+      );
 
-      return { refundId: refund.id };
+      // Update order status in database
+      try {
+        const userId = paymentIntent.metadata?.userId;
+        const orderId = paymentIntent.metadata?.orderId;
+        
+        if (userId && orderId) {
+          await vultrPostgres.query(
+            `UPDATE orders 
+             SET status = 'refunded', 
+                 refund_id = $1,
+                 refund_amount = $2,
+                 updated_at = $3
+             WHERE order_id = $4 AND user_id = $5`,
+            [
+              refund.id,
+              refund.amount / 100,
+              new Date().toISOString(),
+              orderId,
+              userId,
+            ]
+          );
+        }
+      } catch (dbError) {
+        console.warn('Failed to update order status for refund:', dbError);
+      }
+
+      this.logPaymentOperation('createRefund', {
+        paymentIntentId,
+        refundId: refund.id,
+        amount: refund.amount / 100,
+        reason: reason || 'none',
+      });
+
+      return {
+        refundId: refund.id,
+        amount: refund.amount / 100,
+        status: refund.status,
+      };
     } catch (error: any) {
+      this.logPaymentOperation('createRefund', {
+        paymentIntentId,
+        amount: amount || 'full',
+        error: error.message,
+      }, false);
+
+      if (error instanceof PaymentError || error instanceof BusinessLogicError) {
+        throw error;
+      }
       throw new ExternalServiceError('Stripe', 'Failed to create refund', error);
     }
   }
 
   /**
-   * Handle Stripe webhook
+   * Handle Stripe webhook with improved error handling and retry logic
    * This is called when Stripe sends events about payment status changes
    */
   async handleWebhook(payload: Buffer | string, signature: string): Promise<void> {
@@ -620,7 +914,7 @@ export class PaymentService {
       console.warn('Stripe webhook secret not configured - webhook verification skipped');
       // In development, allow webhooks without secret for testing
       if (env.NODE_ENV === 'production') {
-      throw new Error('Stripe webhook secret not configured');
+        throw new Error('Stripe webhook secret not configured');
       }
     }
 
@@ -636,7 +930,27 @@ export class PaymentService {
       );
     } catch (err: any) {
       console.error('Webhook signature verification failed:', err.message);
+      this.logPaymentOperation('webhookVerification', {
+        error: err.message,
+        eventId: 'unknown',
+      }, false);
       throw new PaymentError(`Webhook signature verification failed: ${err.message}`);
+    }
+
+    // Check if event was already processed
+    try {
+      const existing = await vultrPostgres.query(
+        'SELECT processed FROM webhook_events WHERE stripe_event_id = $1',
+        [event.id]
+      );
+      
+      if (existing.length > 0 && existing[0].processed) {
+        console.log(`Webhook event ${event.id} already processed, skipping`);
+        return;
+      }
+    } catch (dbError) {
+      console.warn('Failed to check existing webhook event:', dbError);
+      // Continue processing
     }
 
     // Store webhook event in database
@@ -658,93 +972,138 @@ export class PaymentService {
     }
 
     // Handle different event types
-    switch (event.type) {
-      case 'payment_intent.succeeded': {
-        const paymentIntent = event.data.object as Stripe.PaymentIntent;
-        console.log('✅ Payment succeeded:', paymentIntent.id);
-        
-        // Update order status in database
-        try {
-          const userId = paymentIntent.metadata?.userId;
-          const orderId = paymentIntent.metadata?.orderId;
+    try {
+      switch (event.type) {
+        case 'payment_intent.succeeded': {
+          const paymentIntent = event.data.object as Stripe.PaymentIntent;
+          this.logPaymentOperation('webhook.payment_intent.succeeded', {
+            eventId: event.id,
+            paymentIntentId: paymentIntent.id,
+            amount: paymentIntent.amount / 100,
+          });
           
-          if (userId && orderId) {
-            await vultrPostgres.query(
-              `UPDATE orders 
-               SET status = 'paid', 
-                   payment_intent_id = $1,
-                   updated_at = $2
-               WHERE order_id = $3 AND user_id = $4`,
-              [paymentIntent.id, new Date().toISOString(), orderId, userId]
-            );
-            console.log(`Order ${orderId} marked as paid`);
-          }
-        } catch (dbError) {
-          console.error('Failed to update order status:', dbError);
-          // Don't throw - webhook was received, just log the error
-        }
-        break;
-      }
-      
-      case 'payment_intent.payment_failed': {
-        const paymentIntent = event.data.object as Stripe.PaymentIntent;
-        console.log('❌ Payment failed:', paymentIntent.id);
-        
-        // Update order status to failed
-        try {
-          const userId = paymentIntent.metadata?.userId;
-          const orderId = paymentIntent.metadata?.orderId;
-          
-          if (userId && orderId) {
-            await vultrPostgres.query(
-              `UPDATE orders 
-               SET status = 'payment_failed', 
-                   updated_at = $1
-               WHERE order_id = $2 AND user_id = $3`,
-              [new Date().toISOString(), orderId, userId]
-            );
-            console.log(`Order ${orderId} marked as payment failed`);
-          }
-        } catch (dbError) {
-          console.error('Failed to update order status:', dbError);
-        }
-        break;
-      }
-      
-      case 'payment_intent.canceled': {
-        const paymentIntent = event.data.object as Stripe.PaymentIntent;
-        console.log('⚠️ Payment canceled:', paymentIntent.id);
-        break;
-      }
-      
-      case 'charge.refunded': {
-        const charge = event.data.object as Stripe.Charge;
-        console.log('💰 Refund processed:', charge.id);
-        
-        // Update order status to refunded
-        try {
-          const paymentIntentId = charge.payment_intent as string;
-          if (paymentIntentId) {
-            const paymentIntent = await this.stripe.paymentIntents.retrieve(paymentIntentId);
+          // Update order status in database
+          try {
             const userId = paymentIntent.metadata?.userId;
             const orderId = paymentIntent.metadata?.orderId;
             
             if (userId && orderId) {
               await vultrPostgres.query(
                 `UPDATE orders 
-                 SET status = 'refunded', 
+                 SET status = 'paid', 
+                     payment_intent_id = $1,
+                     updated_at = $2
+                 WHERE order_id = $3 AND user_id = $4`,
+                [paymentIntent.id, new Date().toISOString(), orderId, userId]
+              );
+              this.logPaymentOperation('orderStatusUpdated', {
+                orderId,
+                status: 'paid',
+              });
+            }
+          } catch (dbError) {
+            console.error('Failed to update order status:', dbError);
+            // Don't throw - webhook was received, just log the error
+            this.logPaymentOperation('orderStatusUpdateFailed', {
+              paymentIntentId: paymentIntent.id,
+              error: dbError instanceof Error ? dbError.message : String(dbError),
+            }, false);
+          }
+          break;
+        }
+      
+        case 'payment_intent.payment_failed': {
+          const paymentIntent = event.data.object as Stripe.PaymentIntent;
+          this.logPaymentOperation('webhook.payment_intent.payment_failed', {
+            eventId: event.id,
+            paymentIntentId: paymentIntent.id,
+            lastPaymentError: paymentIntent.last_payment_error?.message || 'unknown',
+          }, false);
+          
+          // Update order status to failed
+          try {
+            const userId = paymentIntent.metadata?.userId;
+            const orderId = paymentIntent.metadata?.orderId;
+            
+            if (userId && orderId) {
+              await vultrPostgres.query(
+                `UPDATE orders 
+                 SET status = 'payment_failed', 
                      updated_at = $1
                  WHERE order_id = $2 AND user_id = $3`,
                 [new Date().toISOString(), orderId, userId]
               );
-              console.log(`Order ${orderId} marked as refunded`);
+              this.logPaymentOperation('orderStatusUpdated', {
+                orderId,
+                status: 'payment_failed',
+              });
             }
+          } catch (dbError) {
+            console.error('Failed to update order status:', dbError);
+            this.logPaymentOperation('orderStatusUpdateFailed', {
+              paymentIntentId: paymentIntent.id,
+              error: dbError instanceof Error ? dbError.message : String(dbError),
+            }, false);
           }
-        } catch (dbError) {
-          console.error('Failed to update order status for refund:', dbError);
+          break;
         }
-        break;
-      }
+        
+        case 'payment_intent.canceled': {
+          const paymentIntent = event.data.object as Stripe.PaymentIntent;
+          this.logPaymentOperation('webhook.payment_intent.canceled', {
+            eventId: event.id,
+            paymentIntentId: paymentIntent.id,
+          });
+          break;
+        }
+      
+        case 'charge.refunded': {
+          const charge = event.data.object as Stripe.Charge;
+          this.logPaymentOperation('webhook.charge.refunded', {
+            eventId: event.id,
+            chargeId: charge.id,
+            refundAmount: charge.amount_refunded / 100,
+          });
+          
+          // Update order status to refunded
+          try {
+            const paymentIntentId = charge.payment_intent as string;
+            if (paymentIntentId) {
+              const paymentIntent = await this.stripe.paymentIntents.retrieve(paymentIntentId);
+              const userId = paymentIntent.metadata?.userId;
+              const orderId = paymentIntent.metadata?.orderId;
+              
+              if (userId && orderId) {
+                await vultrPostgres.query(
+                  `UPDATE orders 
+                   SET status = 'refunded', 
+                       refund_id = $1,
+                       refund_amount = $2,
+                       updated_at = $3
+                   WHERE order_id = $4 AND user_id = $5`,
+                  [
+                    charge.refunds?.data[0]?.id || null,
+                    charge.amount_refunded / 100,
+                    new Date().toISOString(),
+                    orderId,
+                    userId,
+                  ]
+                );
+                this.logPaymentOperation('orderStatusUpdated', {
+                  orderId,
+                  status: 'refunded',
+                });
+              }
+            }
+          } catch (dbError) {
+            console.error('Failed to update order status for refund:', dbError);
+            this.logPaymentOperation('orderStatusUpdateFailed', {
+              chargeId: charge.id,
+              error: dbError instanceof Error ? dbError.message : String(dbError),
+            }, false);
+          }
+          break;
+        }
 
       case 'invoice.payment_succeeded': {
         const invoice = event.data.object as Stripe.Invoice;
@@ -836,8 +1195,20 @@ export class PaymentService {
         break;
       }
       
-      default:
-        console.log(`Unhandled event type: ${event.type}`);
+        default:
+          this.logPaymentOperation('webhook.unhandled', {
+            eventId: event.id,
+            eventType: event.type,
+          });
+      }
+    } catch (error: any) {
+      this.logPaymentOperation('webhook.processingError', {
+        eventId: event.id,
+        eventType: event.type,
+        error: error.message,
+      }, false);
+      // Re-throw to allow webhook retry
+      throw error;
     }
 
     // Mark event as processed
@@ -846,8 +1217,13 @@ export class PaymentService {
         'UPDATE webhook_events SET processed = true WHERE stripe_event_id = $1',
         [event.id]
       );
+      this.logPaymentOperation('webhook.processed', {
+        eventId: event.id,
+        eventType: event.type,
+      });
     } catch (dbError) {
       console.warn('Failed to mark webhook event as processed:', dbError);
+      // Don't throw - event was processed, just couldn't update flag
     }
   }
 }

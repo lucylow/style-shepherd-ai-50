@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { Mic, PlayCircle, Sparkles, Bot, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -96,10 +97,10 @@ const Hero = () => {
                 className="bg-fashion-gold text-gray-900 hover:bg-fashion-gold/90 font-bold shadow-2xl"
                 asChild
               >
-                <a href="/dashboard">
+                <Link to="/dashboard">
                   <Mic className="mr-2 h-5 w-5" />
                   Try Voice Assistant
-                </a>
+                </Link>
               </Button>
 
               <Button
@@ -108,10 +109,10 @@ const Hero = () => {
                 className="border-2 border-white text-gray-900 bg-white hover:bg-gray-100"
                 asChild
               >
-                <a href="/dashboard">
+                <Link to="/dashboard">
                   <PlayCircle className="mr-2 h-5 w-5" />
                   Watch Demo
-                </a>
+                </Link>
               </Button>
             </div>
 

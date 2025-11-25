@@ -14,6 +14,7 @@ import { conversationMemoryOptimizer, ConversationMessage } from './Conversation
 import { llmService } from './LLMService.js';
 import { sttService } from './STTService.js';
 import { createHash } from 'crypto';
+import { Readable } from 'stream';
 
 export interface ConversationState {
   conversationId: string;
@@ -534,9 +535,10 @@ export class VoiceAssistant {
             },
           });
 
-          // Convert stream to buffer
+          // Convert ReadableStream to buffer
           const chunks: Uint8Array[] = [];
-          for await (const chunk of audioResponse) {
+          const nodeStream = Readable.fromWeb(audioResponse as any);
+          for await (const chunk of nodeStream) {
             chunks.push(chunk);
           }
           return Buffer.concat(chunks);
@@ -868,8 +870,9 @@ export class VoiceAssistant {
         },
       });
 
-      // Stream chunks directly to response
-      for await (const chunk of audioStream) {
+      // Convert ReadableStream to Node.js stream and pipe to response
+      const nodeStream = Readable.fromWeb(audioStream as any);
+      for await (const chunk of nodeStream) {
         // Check if stream is still writable (handle both Express Response and generic streams)
         const isWritable = responseStream.writable !== false && 
                           (responseStream.destroyed === undefined || !responseStream.destroyed);

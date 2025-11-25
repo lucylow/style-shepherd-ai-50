@@ -921,13 +921,85 @@ router.post(
       paymentIntentId: z.string().min(1, 'Payment intent ID is required'),
       amount: z.number().positive().optional(),
       reason: z.enum(['duplicate', 'fraudulent', 'requested_by_customer']).optional(),
+      metadata: z.record(z.string()).optional(),
     })
   ),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { paymentIntentId, amount, reason } = req.body;
-      const result = await paymentService.createRefund(paymentIntentId, amount, reason);
+      const { paymentIntentId, amount, reason, metadata } = req.body;
+      const result = await paymentService.createRefund(paymentIntentId, amount, reason, metadata);
       res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// Payment Methods
+router.get(
+  '/payments/payment-methods/:userId',
+  validateParams(z.object({ userId: z.string().min(1) })),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { userId } = req.params;
+      const paymentMethods = await paymentService.getPaymentMethods(userId);
+      res.json({ paymentMethods });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.post(
+  '/payments/payment-methods/attach',
+  validateBody(
+    z.object({
+      userId: z.string().min(1, 'User ID is required'),
+      paymentMethodId: z.string().min(1, 'Payment method ID is required'),
+    })
+  ),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { userId, paymentMethodId } = req.body;
+      const paymentMethod = await paymentService.attachPaymentMethod(userId, paymentMethodId);
+      res.json({ paymentMethod });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.post(
+  '/payments/payment-methods/detach',
+  validateBody(
+    z.object({
+      paymentMethodId: z.string().min(1, 'Payment method ID is required'),
+    })
+  ),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { paymentMethodId } = req.body;
+      await paymentService.detachPaymentMethod(paymentMethodId);
+      res.json({ success: true, message: 'Payment method detached' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.post(
+  '/payments/payment-methods/set-default',
+  validateBody(
+    z.object({
+      userId: z.string().min(1, 'User ID is required'),
+      paymentMethodId: z.string().min(1, 'Payment method ID is required'),
+    })
+  ),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { userId, paymentMethodId } = req.body;
+      await paymentService.setDefaultPaymentMethod(userId, paymentMethodId);
+      res.json({ success: true, message: 'Default payment method updated' });
     } catch (error) {
       next(error);
     }
