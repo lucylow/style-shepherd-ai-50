@@ -226,7 +226,7 @@ export class IdeaQualityAssessor {
           type: 'technical',
           value: 'Style Shepherd learns from returns data - creates continuous improvement',
           source: 'Proprietary algorithm',
-          relevance: 'Creates moat competitors can't easily replicate',
+          relevance: 'Creates moat competitors can\'t easily replicate',
         },
       ],
       styleShepherdScore: 96, // Out of 100

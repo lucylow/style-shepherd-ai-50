@@ -38,6 +38,9 @@ const envSchema = z.object({
   ELEVENLABS_API_KEY: z.string().optional(),
   ELEVEN_LABS_API_KEY: z.string().optional(), // Legacy support
   
+  // OpenAI (optional - for LLM and Whisper STT)
+  OPENAI_API_KEY: z.string().optional(),
+  
   // WorkOS
   WORKOS_API_KEY: z.string().min(1),
   WORKOS_CLIENT_ID: z.string().min(1),

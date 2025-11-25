@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { Mic, PlayCircle } from "lucide-react";
+import { Mic, PlayCircle, Sparkles, Bot, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { motion, AnimatePresence } from "framer-motion";
 
 const Hero = () => {
   const [stats, setStats] = useState({ returns: 0, timeSaved: 0, rating: 0 });
@@ -131,32 +132,72 @@ const Hero = () => {
           </div>
 
           <div className="relative animate-scale-in">
-            <div className="bg-white rounded-2xl shadow-2xl p-8 relative z-10">
+            <div className="bg-white rounded-2xl shadow-2xl p-8 relative z-10 border border-gray-100">
               <div className="text-center mb-6">
-                <div className="w-20 h-20 bg-primary rounded-full flex items-center justify-center mx-auto mb-4 animate-voice-pulse">
-                  <Mic className="w-8 h-8 text-white" />
-                </div>
-                <h3 className="text-2xl font-bold text-gray-900">Ask Me Anything</h3>
-                <p className="text-gray-600">About fashion, sizing, or styling</p>
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 200, damping: 15 }}
+                  className="relative mx-auto mb-4"
+                >
+                  <div className="w-20 h-20 bg-gradient-to-br from-primary to-primary/70 rounded-full flex items-center justify-center shadow-lg animate-voice-pulse">
+                    <Sparkles className="w-10 h-10 text-white" />
+                  </div>
+                  <motion.div
+                    className="absolute -top-1 -right-1 w-6 h-6 bg-green-500 rounded-full border-4 border-white flex items-center justify-center"
+                    animate={{ scale: [1, 1.1, 1] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                  >
+                    <div className="w-2 h-2 bg-white rounded-full" />
+                  </motion.div>
+                </motion.div>
+                <h3 className="text-2xl font-bold text-gray-900 mb-2">Ask Me Anything</h3>
+                <p className="text-gray-600 flex items-center justify-center gap-2">
+                  <Bot className="w-4 h-4" />
+                  About fashion, sizing, or styling
+                </p>
               </div>
 
-              <div className="space-y-4 mb-6 h-48 overflow-y-auto">
-                {conversation.map((msg, idx) => (
-                  <div
-                    key={idx}
-                    className={`flex ${msg.role === "user" ? "justify-start" : "justify-end"}`}
-                  >
-                    <div
-                      className={`rounded-2xl px-4 py-3 max-w-xs ${
-                        msg.role === "user"
-                          ? "bg-gray-100 text-gray-700"
-                          : "bg-primary text-white"
+              <div className="space-y-3 mb-6 h-48 overflow-y-auto scrollbar-thin">
+                <AnimatePresence>
+                  {conversation.map((msg, idx) => (
+                    <motion.div
+                      key={idx}
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ duration: 0.3, delay: idx * 0.1 }}
+                      className={`flex items-start gap-2 ${
+                        msg.role === "user" ? "flex-row-reverse" : "flex-row"
                       }`}
                     >
-                      <p className="text-sm">{msg.text}</p>
-                    </div>
-                  </div>
-                ))}
+                      {/* Avatar */}
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                          msg.role === "user"
+                            ? "bg-primary/20 text-primary"
+                            : "bg-gradient-to-br from-primary to-primary/70 text-white shadow-md"
+                        }`}
+                      >
+                        {msg.role === "user" ? (
+                          <User className="w-4 h-4" />
+                        ) : (
+                          <Sparkles className="w-4 h-4" />
+                        )}
+                      </div>
+                      
+                      {/* Message Bubble */}
+                      <div
+                        className={`rounded-2xl px-4 py-3 max-w-[75%] shadow-sm ${
+                          msg.role === "user"
+                            ? "bg-gray-100 text-gray-800"
+                            : "bg-gradient-to-br from-primary to-primary/90 text-white"
+                        }`}
+                      >
+                        <p className="text-sm leading-relaxed">{msg.text}</p>
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
               </div>
 
               <div className="flex space-x-4">

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Mic, MicOff, Bot, Volume2, VolumeX, X, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Bot, Volume2, VolumeX, X, Loader2, Sparkles, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from './ui/button';
 import { useToast } from './ui/use-toast';
@@ -28,6 +28,7 @@ export const VoiceInterface = ({ onVoiceCommand, userId, className }: VoiceInter
   const [messages, setMessages] = useState<Message[]>([]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [isTyping, setIsTyping] = useState(false);
   const { toast } = useToast();
   
   const audioChunksRef = useRef<Blob[]>([]);
@@ -215,6 +216,9 @@ export const VoiceInterface = ({ onVoiceCommand, userId, className }: VoiceInter
 
   const processAudio = async (audioBlob: Blob) => {
     try {
+      // Show typing indicator
+      setIsTyping(true);
+      
       const response = await voiceService.processVoiceInput(
         userId,
         audioBlob,
@@ -226,6 +230,10 @@ export const VoiceInterface = ({ onVoiceCommand, userId, className }: VoiceInter
         content: 'Voice input',
         timestamp: Date.now(),
       };
+
+      // Simulate typing delay for better UX
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setIsTyping(false);
 
       const assistantMessage: Message = {
         type: 'assistant',
@@ -244,6 +252,7 @@ export const VoiceInterface = ({ onVoiceCommand, userId, className }: VoiceInter
       onVoiceCommand?.(response);
     } catch (error: any) {
       console.error('Error processing voice:', error);
+      setIsTyping(false);
       toast({
         title: "Processing Error",
         description: error.message || "Failed to process voice command. Please try again.",
@@ -322,22 +331,36 @@ export const VoiceInterface = ({ onVoiceCommand, userId, className }: VoiceInter
     >
       <div className="bg-background/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-border overflow-hidden max-w-sm w-full">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          <div className="flex items-center space-x-2">
+        <div className="flex items-center justify-between p-4 border-b border-border bg-gradient-to-r from-primary/5 to-transparent">
+          <div className="flex items-center space-x-3">
             <div className="relative">
-              <Bot className="w-6 h-6 text-primary" />
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-lg">
+                <Sparkles className="w-5 h-5 text-white" />
+              </div>
               {isConnected && (
-                <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                <motion.div 
+                  className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-background"
+                  animate={{ scale: [1, 1.2, 1] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                />
               )}
             </div>
             <div>
-              <span className="text-sm font-semibold block">Style Shepherd</span>
-              <span className="text-xs text-muted-foreground">
-                {isConnected ? 'Connected' : 'Offline'}
-              </span>
+              <span className="text-sm font-bold block text-foreground">Style Shepherd AI</span>
+              <div className="flex items-center gap-1.5">
+                <span className={cn(
+                  "text-xs",
+                  isConnected ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'
+                )}>
+                  {isConnected ? '● Active' : '● Offline'}
+                </span>
+                {isProcessing && (
+                  <span className="text-xs text-primary animate-pulse">Processing...</span>
+                )}
+              </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             {messages.length > 0 && (
               <Button
                 variant="ghost"
@@ -409,12 +432,38 @@ export const VoiceInterface = ({ onVoiceCommand, userId, className }: VoiceInter
             </div>
 
             {/* Status Text */}
-            <p className="text-center text-sm text-muted-foreground mb-2">
-              {isListening ? 'Listening...' : 
-               isProcessing ? 'Processing...' : 
-               isPlaying ? 'Playing response...' :
-               'Tap to speak'}
-            </p>
+            <div className="text-center mb-2">
+              <motion.p 
+                key={isListening ? 'listening' : isProcessing ? 'processing' : isPlaying ? 'playing' : 'ready'}
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-sm font-medium text-foreground"
+              >
+                {isListening ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    Listening...
+                  </span>
+                ) : isProcessing ? (
+                  <span className="flex items-center justify-center gap-2 text-primary">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Processing your request...
+                  </span>
+                ) : isPlaying ? (
+                  <span className="flex items-center justify-center gap-2 text-primary">
+                    <Volume2 className="w-3 h-3" />
+                    Playing response...
+                  </span>
+                ) : (
+                  'Tap to speak'
+                )}
+              </motion.p>
+              {!isListening && !isProcessing && !isPlaying && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Ask about fashion, sizing, or styling
+                </p>
+              )}
+            </div>
 
             {/* Audio Controls */}
             {messages.length > 0 && messages[messages.length - 1]?.audioUrl && (
@@ -448,43 +497,103 @@ export const VoiceInterface = ({ onVoiceCommand, userId, className }: VoiceInter
 
           {/* Conversation History */}
           <AnimatePresence>
-            {isExpanded && messages.length > 0 && (
+            {isExpanded && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="space-y-2 max-h-60 overflow-y-auto border-t border-border pt-4 mt-4"
+                className="space-y-3 max-h-60 overflow-y-auto border-t border-border pt-4 mt-4 scrollbar-thin"
               >
+                {messages.length === 0 && !isTyping && (
+                  <div className="text-center py-4">
+                    <Bot className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-50" />
+                    <p className="text-xs text-muted-foreground">
+                      Start a conversation by tapping the microphone
+                    </p>
+                  </div>
+                )}
                 {messages.slice(-5).map((message, index) => (
                   <motion.div
                     key={`${message.timestamp}-${index}`}
-                    initial={{ opacity: 0, x: message.type === 'user' ? 20 : -20 }}
-                    animate={{ opacity: 1, x: 0 }}
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ duration: 0.2 }}
                     className={cn(
-                      "text-xs p-3 rounded-lg flex items-start gap-2",
-                      message.type === 'user' 
-                        ? 'bg-primary/10 text-primary ml-4' 
-                        : 'bg-muted text-foreground mr-4'
+                      "flex items-start gap-3",
+                      message.type === 'user' ? 'flex-row-reverse' : 'flex-row'
                     )}
                   >
-                    <div className="flex-1">
-                      <div className="font-medium mb-1">
-                        {message.type === 'user' ? 'You' : 'Assistant'}
-                      </div>
-                      <div>{message.content}</div>
+                    {/* Avatar */}
+                    <div className={cn(
+                      "w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0",
+                      message.type === 'user' 
+                        ? 'bg-primary/20 text-primary' 
+                        : 'bg-gradient-to-br from-primary to-primary/70 text-white shadow-md'
+                    )}>
+                      {message.type === 'user' ? (
+                        <User className="w-4 h-4" />
+                      ) : (
+                        <Sparkles className="w-4 h-4" />
+                      )}
                     </div>
-                    {message.audioUrl && message.type === 'assistant' && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 flex-shrink-0"
-                        onClick={() => playAudioResponse(message.audioUrl!)}
-                      >
-                        <Volume2 className="w-3 h-3" />
-                      </Button>
-                    )}
+                    
+                    {/* Message Bubble */}
+                    <div className={cn(
+                      "flex-1 rounded-2xl px-4 py-2.5 max-w-[80%]",
+                      message.type === 'user'
+                        ? 'bg-primary text-primary-foreground shadow-sm'
+                        : 'bg-muted text-foreground border border-border/50'
+                    )}>
+                      <div className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                        {message.content}
+                      </div>
+                      {message.audioUrl && message.type === 'assistant' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 mt-2 text-xs"
+                          onClick={() => playAudioResponse(message.audioUrl!)}
+                        >
+                          <Volume2 className="w-3 h-3 mr-1" />
+                          Play audio
+                        </Button>
+                      )}
+                    </div>
                   </motion.div>
                 ))}
+                
+                {/* Typing Indicator */}
+                {isTyping && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    className="flex items-start gap-3"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary to-primary/70 text-white flex items-center justify-center flex-shrink-0 shadow-md">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <div className="bg-muted rounded-2xl px-4 py-3 border border-border/50">
+                      <div className="flex gap-1">
+                        <motion.div
+                          className="w-2 h-2 bg-foreground/60 rounded-full"
+                          animate={{ y: [0, -4, 0] }}
+                          transition={{ duration: 0.6, repeat: Infinity, delay: 0 }}
+                        />
+                        <motion.div
+                          className="w-2 h-2 bg-foreground/60 rounded-full"
+                          animate={{ y: [0, -4, 0] }}
+                          transition={{ duration: 0.6, repeat: Infinity, delay: 0.2 }}
+                        />
+                        <motion.div
+                          className="w-2 h-2 bg-foreground/60 rounded-full"
+                          animate={{ y: [0, -4, 0] }}
+                          transition={{ duration: 0.6, repeat: Infinity, delay: 0.4 }}
+                        />
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>

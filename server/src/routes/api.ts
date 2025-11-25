@@ -14,6 +14,7 @@ import { agentRegistry } from '../services/AgentRegistry.js';
 import { NotFoundError } from '../lib/errors.js';
 import { validateBody, validateParams, validateQuery, commonSchemas } from '../middleware/validation.js';
 import { z } from 'zod';
+import agentRoutes from './agents.js';
 
 const router = Router();
 
@@ -984,6 +985,9 @@ router.get(
     }
   }
 );
+
+// Agent management routes
+router.use(agentRoutes);
 
 export default router;
 
