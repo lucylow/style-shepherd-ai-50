@@ -1,0 +1,157 @@
+# Raindrop Platform Deployment Configuration
+# Style Shepherd - AI-Powered Fashion Startup Operating System
+
+name: style-shepherd
+version: 1.0.0
+
+# Project metadata
+description: AI-powered fashion shopping assistant with voice interface, personalized recommendations, and returns prediction
+platform: raindrop
+runtime: nodejs
+nodeVersion: "18"
+
+# Environment variables
+env:
+  - name: VITE_RAINDROP_API_KEY
+    value: ${RAINDROP_API_KEY}
+    required: false  # Optional for Lovable Cloud
+  - name: VITE_RAINDROP_PROJECT_ID
+    value: ${RAINDROP_PROJECT_ID}
+    required: false  # Optional for Lovable Cloud
+  - name: VITE_RAINDROP_BASE_URL
+    value: ${RAINDROP_BASE_URL:-https://api.raindrop.io}
+  - name: NODE_ENV
+    value: production
+  - name: VITE_API_BASE_URL
+    value: ${API_BASE_URL:-/api}
+    description: Backend API base URL (defaults to relative path for Lovable)
+
+# Smart Components Configuration
+smartComponents:
+  # SmartMemory - User profiles and context
+  memory:
+    - namespace: user-profiles
+      description: Stores user profiles, preferences, and conversational history
+      retention: 365d
+      
+  # SmartBuckets - Product images and visual search
+  buckets:
+    - namespace: product-images
+      description: Product images, visual search, and media storage
+      cdn: true
+      maxFileSize: 10MB
+      
+  # SmartSQL - Structured data
+  sql:
+    - namespace: orders
+      description: Orders, catalog, and returns data
+      tables:
+        - name: orders
+          schema:
+            id: string
+            user_id: string
+            items: json
+            total: number
+            status: string
+            predicted_return_rate: number
+            created_at: timestamp
+            updated_at: timestamp
+        - name: returns
+          schema:
+            id: string
+            order_id: string
+            product_id: string
+            user_id: string
+            reason: string
+            status: string
+            created_at: timestamp
+        - name: catalog
+          schema:
+            id: string
+            name: string
+            description: text
+            price: number
+            category: string
+            brand: string
+            color: string
+            sizes: json
+            stock: number
+            created_at: timestamp
+            updated_at: timestamp
+            
+  # SmartInference - AI recommendations and intent analysis
+  inference:
+    - namespace: style-recommendations
+      description: AI-powered product recommendations, intent analysis, and style advice
+      models:
+        - name: recommendation-model
+          type: recommendation
+        - name: intent-analysis-model
+          type: nlp
+        - name: return-risk-model
+          type: classification
+
+# Build configuration
+build:
+  command: npm run build
+  output: dist
+  
+# Deployment settings
+deploy:
+  region: us-central1
+  scaling:
+    minInstances: 1
+    maxInstances: 10
+    targetCPUUtilization: 70
+    
+# Health check
+healthCheck:
+  path: /health
+  interval: 30s
+  timeout: 5s
+  retries: 3
+
+# Resources
+resources:
+  cpu: 1
+  memory: 512Mi
+  storage: 10Gi
+
+# Networking
+networking:
+  domains:
+    - style-shepherd.raindrop.io
+  cors:
+    allowedOrigins:
+      - "*"
+    allowedMethods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - OPTIONS
+
+# Monitoring and logging
+monitoring:
+  enabled: true
+  metrics:
+    - requests
+    - latency
+    - errors
+    - smartComponentUsage
+  alerts:
+    - name: high-error-rate
+      condition: error_rate > 5%
+      action: notify
+    - name: high-latency
+      condition: p95_latency > 1000ms
+      action: scale_up
+
+# Security
+security:
+  apiKeyAuth: true
+  rateLimiting:
+    enabled: true
+    requestsPerMinute: 100
+  cors: true
+
