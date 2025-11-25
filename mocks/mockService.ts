@@ -212,7 +212,13 @@ export class MockPaymentService {
     cancelUrl: string;
     customerEmail?: string;
   }): Promise<MockCheckoutSession> {
-    const sessionId = `cs_test_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    if (!params.priceId || !params.successUrl || !params.cancelUrl) {
+      throw new Error('Missing required parameters for checkout session');
+    }
+
+    const timestamp = Date.now();
+    const randomSuffix = Math.random().toString(36).substring(2, 11);
+    const sessionId = `cs_test_${timestamp}_${randomSuffix}`;
     
     return {
       url: `https://checkout.stripe.com/pay/${sessionId}`,
@@ -223,12 +229,36 @@ export class MockPaymentService {
   /**
    * Simulate payment success
    */
-  async simulatePaymentSuccess(paymentIntentId: string): Promise<void> {
+  async simulatePaymentSuccess(paymentIntentId: string): Promise<PaymentIntentData> {
     const intent = this.paymentIntents.get(paymentIntentId);
-    if (intent) {
+    if (!intent) {
+      throw new Error(`Payment intent ${paymentIntentId} not found`);
+    }
+
       intent.status = 'succeeded';
       this.paymentIntents.set(paymentIntentId, intent);
+    this.saveToStorage();
+
+    return intent;
+  }
+
+  /**
+   * Simulate payment failure
+   */
+  async simulatePaymentFailure(paymentIntentId: string, reason?: string): Promise<PaymentIntentData> {
+    const intent = this.paymentIntents.get(paymentIntentId);
+    if (!intent) {
+      throw new Error(`Payment intent ${paymentIntentId} not found`);
     }
+
+    intent.status = 'canceled';
+    if (reason) {
+      intent.metadata.failure_reason = reason;
+    }
+    this.paymentIntents.set(paymentIntentId, intent);
+    this.saveToStorage();
+
+    return intent;
   }
 
   /**
@@ -240,9 +270,14 @@ export class MockPaymentService {
     description: string;
     metadata?: Record<string, string>;
   }): Promise<MockInvoice> {
-    const invoiceId = `in_mock_${Date.now()}`;
+    if (!params.customer || params.amount <= 0) {
+      throw new Error('Invalid invoice parameters');
+    }
+
+    const timestamp = Date.now();
+    const invoiceId = `in_mock_${timestamp}`;
     
-    const invoice = {
+    const invoice: MockInvoice = {
       id: invoiceId,
       customer: params.customer,
       amount_due: params.amount,
@@ -252,6 +287,32 @@ export class MockPaymentService {
       metadata: params.metadata || {},
       created_at: new Date().toISOString(),
     };
+
+    this.invoices.set(invoiceId, invoice);
+    this.saveToStorage();
+
+    return invoice;
+  }
+
+  /**
+   * Get invoice by ID
+   */
+  getInvoice(invoiceId: string): MockInvoice | undefined {
+    return this.invoices.get(invoiceId);
+  }
+
+  /**
+   * Update invoice status
+   */
+  async updateInvoiceStatus(invoiceId: string, status: MockInvoice['status']): Promise<MockInvoice> {
+    const invoice = this.invoices.get(invoiceId);
+    if (!invoice) {
+      throw new Error(`Invoice ${invoiceId} not found`);
+    }
+
+    invoice.status = status;
+    this.invoices.set(invoiceId, invoice);
+    this.saveToStorage();
 
     return invoice;
   }
@@ -298,8 +359,41 @@ export class MockPaymentService {
   /**
    * Get mock payment intent
    */
-  getPaymentIntent(paymentIntentId: string): any {
+  getPaymentIntent(paymentIntentId: string): PaymentIntentData | undefined {
     return this.paymentIntents.get(paymentIntentId);
+  }
+
+  /**
+   * Get order by ID
+   */
+  getOrder(orderId: string): Order | undefined {
+    return this.orders.get(orderId);
+  }
+
+  /**
+   * Get all payment intents (for testing/debugging)
+   */
+  getAllPaymentIntents(): PaymentIntentData[] {
+    return Array.from(this.paymentIntents.values());
+  }
+
+  /**
+   * Get all invoices (for testing/debugging)
+   */
+  getAllInvoices(): MockInvoice[] {
+    return Array.from(this.invoices.values());
+  }
+
+  /**
+   * Clear all stored data (for testing)
+   */
+  clearAll(): void {
+    this.paymentIntents.clear();
+    this.orders.clear();
+    this.invoices.clear();
+    if (this.PERSIST_TO_STORAGE) {
+      localStorage.removeItem(this.STORAGE_KEY);
+    }
   }
 }
 
