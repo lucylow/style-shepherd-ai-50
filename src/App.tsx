@@ -31,6 +31,14 @@ import JudgeDemoPage from "./pages/JudgeDemo";
 import PilotKPIsPage from "./pages/PilotKPIs";
 import UnitEconomicsPage from "./pages/UnitEconomics";
 import SponsorMetricsPage from "./pages/SponsorMetrics";
+import LovableDashboard from "./pages/LovableDashboard";
+import LovableDeployment from "./pages/LovableDeployment";
+import LovableMonitoring from "./pages/LovableMonitoring";
+import LovableSettings from "./pages/LovableSettings";
+import LovableAnalytics from "./pages/LovableAnalytics";
+import LovableEnvironment from "./pages/LovableEnvironment";
+import LovableLogs from "./pages/LovableLogs";
+import LovableHealth from "./pages/LovableHealth";
 import PageTransition from "./components/PageTransition";
 import RouteLoadingIndicator from "./components/RouteLoadingIndicator";
 
@@ -91,6 +99,15 @@ const AppRoutes = () => {
         <Route path="/pilot-kpis" element={<PageTransition keyProp={location.pathname}><PilotKPIsPage /></PageTransition>} />
         <Route path="/unit-economics" element={<PageTransition keyProp={location.pathname}><UnitEconomicsPage /></PageTransition>} />
         <Route path="/sponsor-metrics" element={<PageTransition keyProp={location.pathname}><SponsorMetricsPage /></PageTransition>} />
+        {/* Lovable Cloud Routes */}
+        <Route path="/lovable" element={<PageTransition keyProp={location.pathname}><LovableDashboard /></PageTransition>} />
+        <Route path="/lovable/deployment" element={<PageTransition keyProp={location.pathname}><LovableDeployment /></PageTransition>} />
+        <Route path="/lovable/monitoring" element={<PageTransition keyProp={location.pathname}><LovableMonitoring /></PageTransition>} />
+        <Route path="/lovable/settings" element={<PageTransition keyProp={location.pathname}><LovableSettings /></PageTransition>} />
+        <Route path="/lovable/analytics" element={<PageTransition keyProp={location.pathname}><LovableAnalytics /></PageTransition>} />
+        <Route path="/lovable/environment" element={<PageTransition keyProp={location.pathname}><LovableEnvironment /></PageTransition>} />
+        <Route path="/lovable/logs" element={<PageTransition keyProp={location.pathname}><LovableLogs /></PageTransition>} />
+        <Route path="/lovable/health" element={<PageTransition keyProp={location.pathname}><LovableHealth /></PageTransition>} />
         {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
         <Route path="*" element={<PageTransition keyProp={location.pathname}><NotFound /></PageTransition>} />
       </Routes>
