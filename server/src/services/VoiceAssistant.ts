@@ -15,6 +15,47 @@ import { llmService } from './LLMService.js';
 import { sttService } from './STTService.js';
 import { createHash } from 'crypto';
 import { Readable } from 'stream';
+import {
+  AppError,
+  ValidationError,
+  ExternalServiceError,
+  ServiceUnavailableError,
+  CacheError,
+  CacheConnectionError,
+  toAppError,
+  isAppError,
+  type ErrorDetails,
+} from '../lib/errors.js';
+
+/**
+ * Voice-specific error classes
+ */
+export class VoiceServiceError extends ExternalServiceError {
+  constructor(message: string, originalError?: Error, details?: ErrorDetails) {
+    super('VoiceService', message, originalError, {
+      ...details,
+      serviceType: 'voice-assistant',
+    });
+  }
+}
+
+export class TranscriptionError extends VoiceServiceError {
+  constructor(message: string = 'Failed to transcribe audio input', originalError?: Error, details?: ErrorDetails) {
+    super(message, originalError, { ...details, operation: 'transcription' });
+  }
+}
+
+export class TTSGenerationError extends VoiceServiceError {
+  constructor(message: string = 'Failed to generate speech', originalError?: Error, details?: ErrorDetails) {
+    super(message, originalError, { ...details, operation: 'text-to-speech' });
+  }
+}
+
+export class ConversationStateError extends ValidationError {
+  constructor(message: string, details?: ErrorDetails) {
+    super(message, { ...details, operation: 'conversation-state' });
+  }
+}
 
 export interface ConversationState {
   conversationId: string;
@@ -49,6 +90,14 @@ export interface STTResult {
   source: 'openai' | 'elevenlabs' | 'fallback';
 }
 
+export interface IntentAnalysis {
+  intent: string;
+  entities: Record<string, any>;
+  confidence: number;
+  sentiment?: 'positive' | 'neutral' | 'negative';
+  context?: Record<string, any>;
+}
+
 export class VoiceAssistant {
   private client: ElevenLabsClient | null;
   private apiKey: string | null;
@@ -56,6 +105,22 @@ export class VoiceAssistant {
   private readonly DEFAULT_MODEL = 'eleven_multilingual_v2';
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAY = 1000; // ms
+  
+  // Data validation constants
+  private readonly MAX_TEXT_LENGTH = 5000;
+  private readonly MAX_PREFERENCE_ITEMS = 100;
+  private readonly VALID_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '0', '2', '4', '6', '8', '10', '12', '14', '16', '18', '20', '22', '24', '26', '28', '30', '32', '34', '36', '38', '40', '42', '44', '46', '48', '50'];
+  private readonly VALID_VOICE_IDS = [
+    '21m00Tcm4TlvDq8ikWAM', // Rachel
+    'ThT5KcBeYPX3keUQqHPh', // George
+    'EXAVITQu4vr4xnSDxMaL', // Bella
+    'ErXwobaYiN019PkySvjV', // Antoni
+    'MF3mGyEYCl7XYWbV9V6O', // Elli
+    'TxGEqnHWrfWFTfGW9XjX', // Josh
+    'VR6AewLTigWG4xSOukaG', // Arnold
+    'pNInz6obpgDQGcFmaJgB', // Adam
+    'yoZ06aMxZJJ28mfd3POQ', // Sam
+  ];
 
   constructor() {
     // Support both ELEVENLABS_API_KEY and ELEVEN_LABS_API_KEY (legacy)
@@ -73,8 +138,14 @@ export class VoiceAssistant {
         this.client = null;
       }
     } catch (error) {
-      console.error('❌ Failed to initialize ElevenLabs client:', error);
+      const appError = toAppError(error);
+      console.error('❌ Failed to initialize ElevenLabs client:', {
+        error: appError.message,
+        code: appError.code,
+        details: appError.details,
+      });
       this.client = null;
+      // Don't throw - allow service to operate with fallbacks
     }
   }
 
@@ -149,6 +220,22 @@ export class VoiceAssistant {
     audioStream: Buffer | ArrayBuffer,
     userId?: string
   ): Promise<{ text: string; audio?: Buffer; intent?: any; entities?: any; preferencesSaved?: boolean }> {
+    // Validate inputs
+    if (!conversationId || typeof conversationId !== 'string') {
+      throw new ValidationError('Invalid conversationId: must be a non-empty string', {
+        field: 'conversationId',
+        value: conversationId,
+      });
+    }
+
+    if (!audioStream || (audioStream instanceof Buffer && audioStream.length === 0) || 
+        (audioStream instanceof ArrayBuffer && audioStream.byteLength === 0)) {
+      throw new ValidationError('Invalid audioStream: must be a non-empty buffer or ArrayBuffer', {
+        field: 'audioStream',
+        operation: 'process-voice-input',
+      });
+    }
+
     // Use orchestrator for better data flow management
     const requestId = `voice_${conversationId}_${Date.now()}`;
     const dedupeKey = userId ? `voice_${userId}_${this.hashAudio(audioStream)}` : undefined;
@@ -182,8 +269,30 @@ export class VoiceAssistant {
       return response.data;
     } catch (error) {
       // Fallback to direct processing if orchestrator fails
-      console.warn('Orchestrator failed, falling back to direct processing:', error);
-      return this.processVoiceInputInternal(conversationId, audioStream, userId);
+      const appError = toAppError(error);
+      console.warn('Orchestrator failed, falling back to direct processing:', {
+        error: appError.message,
+        code: appError.code,
+        conversationId,
+        userId,
+      });
+      
+      try {
+        return await this.processVoiceInputInternal(conversationId, audioStream, userId);
+      } catch (fallbackError) {
+        // If fallback also fails, throw the original orchestrator error wrapped properly
+        throw new VoiceServiceError(
+          'Voice processing failed through both orchestrator and direct processing',
+          error as Error,
+          {
+            conversationId,
+            userId,
+            originalOrchestratorError: appError.message,
+            fallbackError: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+            operation: 'process-voice-input',
+          }
+        );
+      }
     }
   }
 
@@ -195,20 +304,89 @@ export class VoiceAssistant {
     audioStream: Buffer | ArrayBuffer,
     userId?: string
   ): Promise<{ text: string; audio?: Buffer; intent?: any; entities?: any; preferencesSaved?: boolean }> {
-    let lastError: Error | null = null;
+    let lastError: AppError | null = null;
     
     // Retry logic for processing
     for (let attempt = 0; attempt < this.MAX_RETRIES; attempt++) {
     try {
       // Convert audio to text (speech-to-text) using enhanced STT service
-        const sttResult = await sttService.transcribe(audioStream, {
-          prompt: userId ? await this.getContextPrompt(userId) : undefined,
+      let sttResult: STTResult;
+      let contextPrompt: string | undefined;
+      
+      try {
+        contextPrompt = userId ? await this.getContextPrompt(userId) : undefined;
+      } catch (error) {
+        // Non-critical, continue without context prompt
+        console.warn('Failed to get context prompt, continuing without it:', {
+          userId,
+          attempt: attempt + 1,
+          error: error instanceof Error ? error.message : String(error),
         });
-        const textQuery = sttResult.text;
+        contextPrompt = undefined;
+      }
+
+      try {
+        sttResult = await sttService.transcribe(audioStream, {
+          prompt: contextPrompt,
+        });
+      } catch (error) {
+        const appError = toAppError(error);
+        throw new TranscriptionError(
+          `Speech-to-text transcription failed: ${appError.message}`,
+          error as Error,
+          {
+            attempt: attempt + 1,
+            conversationId,
+            userId,
+            audioLength: audioStream instanceof Buffer ? audioStream.length : audioStream.byteLength,
+          }
+        );
+      }
+
+      if (!sttResult || !sttResult.text) {
+        throw new TranscriptionError(
+          'STT service returned empty transcription',
+          undefined,
+          {
+            attempt: attempt + 1,
+            conversationId,
+            userId,
+            sttSource: sttResult?.source,
+          }
+        );
+      }
+
+      // Validate and sanitize transcribed text
+      let textQuery: string;
+      try {
+        textQuery = this.sanitizeText(sttResult.text);
+      } catch (error) {
+        throw new TranscriptionError(
+          'Transcribed text validation failed',
+          error as Error,
+          {
+            attempt: attempt + 1,
+            conversationId,
+            userId,
+            rawText: sttResult.text?.substring(0, 100), // Log first 100 chars
+            sttSource: sttResult.source,
+          }
+        );
+      }
 
       // Skip if transcription failed
       if (!textQuery || textQuery === '[Audio transcription needed - please configure STT service]') {
-        throw new Error('Failed to transcribe audio input');
+        throw new TranscriptionError(
+          'STT service not properly configured or returned placeholder text',
+          undefined,
+          {
+            attempt: attempt + 1,
+            conversationId,
+            userId,
+            rawText: sttResult.text,
+            sttSource: sttResult.source,
+          }
+        );
       }
 
       // Get conversation state and user profile
@@ -216,35 +394,118 @@ export class VoiceAssistant {
       let userProfile: any = null;
       
       if (userId) {
-        [state, userProfile] = await Promise.all([
-          vultrValkey.get<ConversationState>(`conversation:${userId}`),
-          userMemory.get(userId),
-        ]);
+        try {
+          [state, userProfile] = await Promise.all([
+            vultrValkey.get<ConversationState>(`conversation:${userId}`).catch((error) => {
+              const appError = toAppError(error);
+              console.warn('Failed to get conversation state from cache:', {
+                userId,
+                error: appError.message,
+              });
+              return null;
+            }),
+            userMemory.get(userId).catch((error: unknown) => {
+              const appError = toAppError(error);
+              console.warn('Failed to get user profile from memory:', {
+                userId,
+                error: appError.message,
+              });
+              return null;
+            }),
+          ]);
+        } catch (error) {
+          const appError = toAppError(error);
+          console.warn('Failed to retrieve user context, continuing without it:', {
+            userId,
+            error: appError.message,
+          });
+          state = null;
+          userProfile = null;
+        }
       }
 
       // Get conversation history for context (needed before intent extraction)
-      const conversationHistory = userId 
-        ? await this.getConversationHistory(userId, 10)
-        : [];
+      let conversationHistory: any[] = [];
+      try {
+        conversationHistory = userId 
+          ? await this.getConversationHistory(userId, 10)
+          : [];
+      } catch (error) {
+        const appError = toAppError(error);
+        console.warn('Failed to get conversation history, continuing without context:', {
+          userId,
+          error: appError.message,
+        });
+        conversationHistory = [];
+      }
 
         // Enhanced intent and entity extraction using LLM (with fallback)
-      const intentAnalysis = await llmService.extractIntentAndEntities(
-        textQuery,
-        conversationHistory,
-        userProfile
-      );
+      let intentAnalysis: IntentAnalysis;
+      try {
+        intentAnalysis = await llmService.extractIntentAndEntities(
+          textQuery,
+          conversationHistory,
+          userProfile
+        );
+      } catch (error) {
+        const appError = toAppError(error);
+        throw new ExternalServiceError(
+          'LLMService',
+          `Failed to extract intent and entities: ${appError.message}`,
+          error as Error,
+          {
+            textQuery: textQuery.substring(0, 100),
+            conversationId,
+            userId,
+            attempt: attempt + 1,
+          }
+        );
+      }
         
         // Check if user wants to save preferences
-        const preferencesToSave = this.detectPreferencesFromQuery(textQuery, intentAnalysis);
+        let preferencesToSave: Partial<UserVoicePreferences> | null = null;
+        try {
+          preferencesToSave = this.detectPreferencesFromQuery(textQuery, intentAnalysis);
+          if (preferencesToSave) {
+            preferencesToSave = this.validateAndNormalizePreferences(preferencesToSave);
+          }
+        } catch (error) {
+          const appError = toAppError(error);
+          console.warn('Failed to detect/validate preferences, continuing without saving:', {
+            userId,
+            error: appError.message,
+          });
+          preferencesToSave = null;
+        }
 
         // Generate intelligent response using LLM (with fallback)
-      let responseText = await llmService.generateResponse(
-        textQuery,
-        intentAnalysis,
-        conversationHistory,
-        userProfile,
+      let responseText: string;
+      try {
+        responseText = await llmService.generateResponse(
+          textQuery,
+          intentAnalysis,
+          conversationHistory,
+          userProfile,
           state?.preferences
         );
+        
+        // Sanitize response text
+        responseText = this.sanitizeText(responseText);
+      } catch (error) {
+        const appError = toAppError(error);
+        throw new ExternalServiceError(
+          'LLMService',
+          `Failed to generate response: ${appError.message}`,
+          error as Error,
+          {
+            textQuery: textQuery.substring(0, 100),
+            intent: intentAnalysis.intent,
+            conversationId,
+            userId,
+            attempt: attempt + 1,
+          }
+        );
+      }
 
         // Save user preferences if detected
         let preferencesSaved = false;
@@ -258,7 +519,7 @@ export class VoiceAssistant {
               state.preferences = {
                 ...state.preferences,
                 ...preferencesToSave,
-              };
+              } as UserVoicePreferences;
             }
             
             // Enhance response to confirm preference saving
@@ -266,17 +527,26 @@ export class VoiceAssistant {
               responseText += ' I\'ve saved that preference for you!';
             }
           } catch (prefError) {
-            console.warn('Failed to save user preferences:', prefError);
+            const appError = toAppError(prefError);
+            console.warn('Failed to save user preferences:', {
+              userId,
+              error: appError.message,
+              code: appError.code,
+              preferences: Object.keys(preferencesToSave),
+            });
+            // Continue without saving preferences - non-critical
           }
         }
 
-        // Get voice settings for TTS
-        const voiceSettings = state?.voiceSettings || {
-          voiceId: state?.preferences?.voicePreference || this.DEFAULT_VOICE_ID,
-          modelId: this.DEFAULT_MODEL,
-          stability: 0.5,
-          similarityBoost: 0.8,
-        };
+        // Get voice settings for TTS (with validation)
+        const voiceSettings = this.validateVoiceSettings(
+          state?.voiceSettings || {
+            voiceId: state?.preferences?.voicePreference || this.DEFAULT_VOICE_ID,
+            modelId: this.DEFAULT_MODEL,
+            stability: 0.5,
+            similarityBoost: 0.8,
+          }
+        );
 
       // Process with TTS service (fallback chain: local TTS → ElevenLabs)
       let responseAudio: Buffer | undefined;
@@ -290,54 +560,97 @@ export class VoiceAssistant {
           responseAudio = ttsResult;
           console.log(`✅ TTS generated successfully (attempt ${attempt + 1})`);
       } catch (ttsError) {
-          console.warn(`TTS attempt ${attempt + 1} failed:`, ttsError);
+          const appError = toAppError(ttsError);
+          console.warn(`TTS attempt ${attempt + 1} failed:`, {
+            error: appError.message,
+            code: appError.code,
+            voiceId: voiceSettings.voiceId,
+            textLength: responseText.length,
+          });
+          
+          // Only throw error on last attempt if TTS is critical
+          // Otherwise continue with text-only response
           if (attempt === this.MAX_RETRIES - 1) {
             console.warn('All TTS attempts failed, continuing with text-only response');
+            // Don't throw - text-only response is acceptable
           }
-        // Continue with text-only response
+        // Continue with text-only response for non-critical TTS failures
       }
 
-      // Update conversation context with enhanced metadata
-      if (state && userId) {
-        state.lastMessage = textQuery;
-        state.lastResponse = responseText;
-        state.context = {
-          ...state.context,
-          lastQuery: textQuery,
-          lastIntent: intentAnalysis.intent,
-          lastEntities: intentAnalysis.entities,
-          timestamp: Date.now(),
-          confidence: intentAnalysis.confidence,
-            messageCount: (state.context.messageCount || 0) + 1,
-            sttSource: sttResult.source,
-          };
-          if (preferencesSaved && preferencesToSave) {
-            state.preferences = {
-              ...state.preferences,
-              ...preferencesToSave,
-            };
-          }
-        await vultrValkey.set(`conversation:${userId}`, state, 3600);
-      } else if (userId) {
-        // Create new state if it doesn't exist
-        const newConversationId = `conv_${userId}_${Date.now()}`;
-        const newState: ConversationState = {
-          conversationId: newConversationId,
-          userId,
-          context: {
-            lastQuery: textQuery,
-            lastIntent: intentAnalysis.intent,
-            lastEntities: intentAnalysis.entities,
-            timestamp: Date.now(),
-            confidence: intentAnalysis.confidence,
-              messageCount: 1,
+      // Update conversation context with enhanced metadata (with validation)
+      if (userId) {
+        try {
+          if (state) {
+            state.lastMessage = textQuery;
+            state.lastResponse = responseText;
+            state.context = {
+              ...state.context,
+              lastQuery: textQuery,
+              lastIntent: intentAnalysis.intent,
+              lastEntities: intentAnalysis.entities,
+              timestamp: Date.now(),
+              confidence: this.clamp(intentAnalysis.confidence, 0, 1),
+              messageCount: Math.max(0, (state.context.messageCount || 0) + 1),
               sttSource: sttResult.source,
-          },
-          lastMessage: textQuery,
-          lastResponse: responseText,
-            preferences: preferencesToSave || undefined,
-        };
-        await vultrValkey.set(`conversation:${userId}`, newState, 3600);
+            };
+            if (preferencesSaved && preferencesToSave) {
+              const existingPrefs = state.preferences || {};
+              state.preferences = this.validateAndNormalizePreferences({
+                ...existingPrefs,
+                ...preferencesToSave,
+              }) as UserVoicePreferences;
+            }
+            
+            // Validate state before saving
+            const validatedState = this.validateConversationState(state);
+            if (validatedState) {
+              await vultrValkey.set(`conversation:${userId}`, validatedState, 3600);
+            }
+          } else {
+            // Create new state if it doesn't exist (with validation)
+            const newConversationId = `conv_${userId}_${Date.now()}`;
+            const newState: ConversationState = {
+              conversationId: newConversationId,
+              userId,
+              context: {
+                lastQuery: textQuery,
+                lastIntent: intentAnalysis.intent,
+                lastEntities: intentAnalysis.entities,
+                timestamp: Date.now(),
+                confidence: this.clamp(intentAnalysis.confidence, 0, 1),
+                messageCount: 1,
+                sttSource: sttResult.source,
+              },
+              lastMessage: textQuery,
+              lastResponse: responseText,
+              preferences: preferencesToSave ? this.validateAndNormalizePreferences(preferencesToSave) as UserVoicePreferences : undefined,
+            };
+            
+            const validatedState = this.validateConversationState(newState);
+            if (validatedState) {
+              await vultrValkey.set(`conversation:${userId}`, validatedState, 3600);
+            }
+          }
+        } catch (error) {
+          const appError = toAppError(error);
+          if (appError instanceof CacheConnectionError || appError instanceof CacheError) {
+            console.warn('Failed to update conversation state in cache, continuing:', {
+              userId,
+              error: appError.message,
+            });
+            // Non-critical - continue without caching
+          } else {
+            throw new CacheError(
+              'Failed to update conversation state',
+              error as Error,
+              {
+                userId,
+                conversationId: state?.conversationId,
+                operation: 'update-conversation-state',
+              }
+            );
+          }
+        }
       }
 
       // Store conversation in SmartMemory for continuity with metadata (with optimization)
@@ -369,17 +682,31 @@ export class VoiceAssistant {
 
           // Optimize conversation if it's getting large
           if (allMessages.length > 20) {
-            const optimized = await conversationMemoryOptimizer.optimizeConversation(allMessages);
-            await userMemory.set(conversationKey, optimized);
+            try {
+              const optimized = await conversationMemoryOptimizer.optimizeConversation(allMessages);
+              await userMemory.set(conversationKey, optimized);
+            } catch (optimizationError) {
+              // Fallback to simple append if optimization fails
+              console.warn('Conversation optimization failed, using simple append:', {
+                userId,
+                error: optimizationError instanceof Error ? optimizationError.message : String(optimizationError),
+              });
+              await userMemory.append(conversationKey, newMessages[0]);
+              await userMemory.append(conversationKey, newMessages[1]);
+            }
           } else {
             await userMemory.append(conversationKey, newMessages[0]);
             await userMemory.append(conversationKey, newMessages[1]);
           }
         } catch (memoryError) {
-          // Fallback to simple append if optimization fails
-          console.warn('Conversation optimization failed, using simple append:', memoryError);
-          await userMemory.append(conversationKey, newMessages[0]);
-          await userMemory.append(conversationKey, newMessages[1]);
+          // Non-critical - log but continue
+          const appError = toAppError(memoryError);
+          console.warn('Failed to store conversation in memory:', {
+            userId,
+            error: appError.message,
+            code: appError.code,
+          });
+          // Continue without storing - conversation can still work
         }
       }
 
@@ -388,22 +715,67 @@ export class VoiceAssistant {
         audio: responseAudio,
         intent: intentAnalysis.intent,
         entities: intentAnalysis.entities,
-          preferencesSaved,
-        };
+        preferencesSaved,
+      };
       } catch (error) {
-        lastError = error as Error;
-        console.error(`Voice processing attempt ${attempt + 1} failed:`, error);
+        // Convert error to AppError for consistent handling
+        const appError = isAppError(error) ? error : toAppError(error);
+        lastError = appError;
+        
+        console.error(`Voice processing attempt ${attempt + 1} failed:`, {
+          error: appError.message,
+          code: appError.code,
+          statusCode: appError.statusCode,
+          details: appError.details,
+          conversationId,
+          userId,
+          attempt: attempt + 1,
+          stack: appError.stack,
+        });
+        
+        // Check if error is retryable (only retry operational errors)
+        const isRetryable = appError.isOperational && 
+                           !(appError instanceof ValidationError) &&
+                           attempt < this.MAX_RETRIES - 1;
         
         // Wait before retrying (exponential backoff)
-        if (attempt < this.MAX_RETRIES - 1) {
-          await this.sleep(this.RETRY_DELAY * Math.pow(2, attempt));
+        if (isRetryable) {
+          const delay = this.RETRY_DELAY * Math.pow(2, attempt);
+          console.log(`Retrying in ${delay}ms...`);
+          await this.sleep(delay);
+        } else if (attempt < this.MAX_RETRIES - 1) {
+          // Still wait for other errors (except validation)
+          if (!(appError instanceof ValidationError)) {
+            await this.sleep(this.RETRY_DELAY * Math.pow(2, attempt));
+          }
         }
       }
     }
 
     // All retries failed
-    console.error('Failed to process voice input after all retries:', lastError);
-    throw lastError || new Error('Failed to process voice input');
+    if (lastError) {
+      console.error('Failed to process voice input after all retries:', {
+        error: lastError.message,
+        code: lastError.code,
+        statusCode: lastError.statusCode,
+        conversationId,
+        userId,
+        totalAttempts: this.MAX_RETRIES,
+      });
+      throw lastError;
+    }
+    
+    // Fallback error if lastError is somehow null
+    throw new VoiceServiceError(
+      'Failed to process voice input: all retry attempts exhausted',
+      undefined,
+      {
+        conversationId,
+        userId,
+        totalAttempts: this.MAX_RETRIES,
+        operation: 'process-voice-input-internal',
+      }
+    );
   }
 
   /**
@@ -421,45 +793,123 @@ export class VoiceAssistant {
     audio?: Buffer;
   }> {
     try {
+      // Validate and sanitize input query
+      let sanitizedQuery: string;
+      try {
+        sanitizedQuery = this.sanitizeText(query);
+      } catch (error) {
+        throw new ValidationError(
+          'Invalid query input: must be a non-empty string',
+          {
+            field: 'query',
+            value: typeof query === 'string' ? query.substring(0, 100) : query,
+            reason: error instanceof Error ? error.message : String(error),
+          }
+        );
+      }
+
       // Get user profile and conversation state
       let userProfile: any = null;
       let state: ConversationState | null = null;
       
       if (userId) {
-        [state, userProfile] = await Promise.all([
-          vultrValkey.get<ConversationState>(`conversation:${userId}`),
-          userMemory.get(userId),
-        ]);
+        try {
+          [state, userProfile] = await Promise.all([
+            vultrValkey.get<ConversationState>(`conversation:${userId}`).catch((error) => {
+              console.warn('Failed to get conversation state from cache:', {
+                userId,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              return null;
+            }),
+            userMemory.get(userId).catch((error: unknown) => {
+              console.warn('Failed to get user profile from memory:', {
+                userId,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              return null;
+            }),
+          ]);
+        } catch (error) {
+          console.warn('Failed to retrieve user context, continuing without it:', {
+            userId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
       
       // Get conversation history
-      const conversationHistory = userId 
-        ? await this.getConversationHistory(userId, 10)
-        : [];
+      let conversationHistory: any[] = [];
+      try {
+        conversationHistory = userId 
+          ? await this.getConversationHistory(userId, 10)
+          : [];
+      } catch (error) {
+        console.warn('Failed to get conversation history, continuing without context:', {
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        conversationHistory = [];
+      }
 
       // Extract intent and entities using LLM
-      const intentAnalysis = await llmService.extractIntentAndEntities(
-        query,
-        conversationHistory,
-        userProfile
-      );
+      let intentAnalysis: IntentAnalysis;
+      try {
+        intentAnalysis = await llmService.extractIntentAndEntities(
+          sanitizedQuery,
+          conversationHistory,
+          userProfile
+        );
+      } catch (error) {
+        throw new ExternalServiceError(
+          'LLMService',
+          `Failed to extract intent and entities: ${error instanceof Error ? error.message : String(error)}`,
+          error as Error,
+          {
+            query: sanitizedQuery.substring(0, 100),
+            userId,
+            operation: 'extract-intent-entities',
+          }
+        );
+      }
 
       // Generate contextual response using LLM
-      const responseText = await llmService.generateResponse(
-        query,
-        intentAnalysis,
-        conversationHistory,
-        userProfile,
-        state?.preferences
-      );
+      let responseText: string;
+      try {
+        responseText = await llmService.generateResponse(
+          sanitizedQuery,
+          intentAnalysis,
+          conversationHistory,
+          userProfile,
+          state?.preferences
+        );
+        
+        // Sanitize response text
+        responseText = this.sanitizeText(responseText);
+      } catch (error) {
+        throw new ExternalServiceError(
+          'LLMService',
+          `Failed to generate response: ${error instanceof Error ? error.message : String(error)}`,
+          error as Error,
+          {
+            query: sanitizedQuery.substring(0, 100),
+            intent: intentAnalysis.intent,
+            userId,
+            operation: 'generate-response',
+          }
+        );
+      }
 
       // Generate audio if preferred
       let responseAudio: Buffer | undefined;
       if (options?.audioPreferred) {
         try {
-          const voiceId = userProfile?.voicePreference || this.DEFAULT_VOICE_ID;
-          const stability = intentAnalysis.confidence > 0.85 ? 0.7 : 0.5;
-          const similarityBoost = intentAnalysis.confidence > 0.85 ? 0.85 : 0.75;
+          const voiceId = (userProfile?.voicePreference && this.VALID_VOICE_IDS.includes(userProfile.voicePreference))
+            ? userProfile.voicePreference
+            : this.DEFAULT_VOICE_ID;
+          const confidence = this.clamp(intentAnalysis.confidence, 0, 1);
+          const stability = confidence > 0.85 ? 0.7 : 0.5;
+          const similarityBoost = confidence > 0.85 ? 0.85 : 0.75;
           
           const ttsResult = await ttsService.textToSpeech(responseText, voiceId, {
             stability,
@@ -468,23 +918,55 @@ export class VoiceAssistant {
           });
           responseAudio = ttsResult.audio;
         } catch (ttsError) {
-          console.warn('TTS generation failed for text query:', ttsError);
+          const appError = toAppError(ttsError);
+          console.warn('TTS generation failed for text query:', {
+            error: appError.message,
+            code: appError.code,
+            userId,
+            textLength: responseText.length,
+          });
+          // Continue without audio - non-critical
         }
       }
 
-      // Update conversation state
+      // Update conversation state (with validation)
       if (state && userId) {
-        state.lastMessage = query;
-        state.lastResponse = responseText;
-        state.context = {
-          ...state.context,
-          lastQuery: query,
-          lastIntent: intentAnalysis.intent,
-          lastEntities: intentAnalysis.entities,
-          timestamp: Date.now(),
-          confidence: intentAnalysis.confidence,
-        };
-        await vultrValkey.set(`conversation:${userId}`, state, 3600);
+        try {
+          state.lastMessage = sanitizedQuery;
+          state.lastResponse = responseText;
+          state.context = {
+            ...state.context,
+            lastQuery: sanitizedQuery,
+            lastIntent: intentAnalysis.intent,
+            lastEntities: intentAnalysis.entities,
+            timestamp: Date.now(),
+            confidence: this.clamp(intentAnalysis.confidence, 0, 1),
+          };
+          
+          const validatedState = this.validateConversationState(state);
+          if (validatedState) {
+            await vultrValkey.set(`conversation:${userId}`, validatedState, 3600);
+          }
+        } catch (error) {
+          const appError = toAppError(error);
+          if (appError instanceof CacheConnectionError || appError instanceof CacheError) {
+            console.warn('Failed to update conversation state in cache:', {
+              userId,
+              error: appError.message,
+            });
+            // Non-critical - continue without caching
+          } else {
+            throw new CacheError(
+              'Failed to update conversation state',
+              error as Error,
+              {
+                userId,
+                conversationId: state?.conversationId,
+                operation: 'update-conversation-state',
+              }
+            );
+          }
+        }
       }
 
       return {
@@ -494,8 +976,20 @@ export class VoiceAssistant {
         audio: responseAudio,
       };
     } catch (error) {
-      console.error('Failed to process text query:', error);
-      throw error;
+      if (isAppError(error)) {
+        throw error;
+      }
+      
+      const appError = toAppError(error);
+      throw new VoiceServiceError(
+        `Failed to process text query: ${appError.message}`,
+        error as Error,
+        {
+          userId,
+          query: typeof query === 'string' ? query.substring(0, 100) : query,
+          operation: 'process-text-query',
+        }
+      );
     }
   }
 
@@ -508,46 +1002,133 @@ export class VoiceAssistant {
     voiceSettings: VoiceSettings,
     attempt: number = 0
   ): Promise<Buffer> {
+    // Validate inputs
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+      throw new ValidationError('Invalid text for TTS: must be a non-empty string', {
+        field: 'text',
+        operation: 'generate-speech',
+      });
+    }
+
+    const MAX_TEXT_LENGTH = 5000;
+    const sanitizedText = text.trim().substring(0, MAX_TEXT_LENGTH);
+    const validatedSettings = this.validateVoiceSettings(voiceSettings);
+
     try {
       // Use enhanced TTS service with fallback chain and caching
       // The service handles: cache → local TTS → ElevenLabs (direct API preferred, SDK fallback)
-      const ttsResult = await ttsService.textToSpeech(text, voiceSettings.voiceId, {
-        stability: voiceSettings.stability,
-        similarityBoost: voiceSettings.similarityBoost,
+      const ttsResult = await ttsService.textToSpeech(sanitizedText, validatedSettings.voiceId, {
+        stability: validatedSettings.stability,
+        similarityBoost: validatedSettings.similarityBoost,
         useCache: true, // Enable caching for better performance
       });
+      
+      if (!ttsResult || !ttsResult.audio || ttsResult.audio.length === 0) {
+        throw new TTSGenerationError(
+          'TTS service returned empty audio',
+          undefined,
+          {
+            voiceId: validatedSettings.voiceId,
+            textLength: sanitizedText.length,
+            source: ttsResult?.source,
+          }
+        );
+      }
       
       console.log(`✅ TTS generated via ${ttsResult.source}`);
       return ttsResult.audio;
     } catch (error) {
+      const appError = toAppError(error);
+      
       // If TTS service fails completely, try direct ElevenLabs SDK as last resort
       if (this.client && attempt === 0) {
-        console.warn('TTS service failed, trying direct ElevenLabs SDK as last resort');
+        console.warn('TTS service failed, trying direct ElevenLabs SDK as last resort:', {
+          error: appError.message,
+          code: appError.code,
+        });
+        
         try {
-          const audioResponse = await this.client.textToSpeech.convert(voiceSettings.voiceId, {
-            text: text,
-            modelId: voiceSettings.modelId,
+          if (!this.apiKey) {
+            throw new ServiceUnavailableError(
+              'ElevenLabs',
+              'API key not configured, cannot use direct SDK fallback'
+            );
+          }
+
+          const audioResponse = await this.client.textToSpeech.convert(validatedSettings.voiceId, {
+            text: sanitizedText,
+            modelId: validatedSettings.modelId,
             voiceSettings: {
-              stability: voiceSettings.stability,
-              similarityBoost: voiceSettings.similarityBoost,
-              style: voiceSettings.style,
-              useSpeakerBoost: voiceSettings.useSpeakerBoost,
+              stability: validatedSettings.stability,
+              similarityBoost: validatedSettings.similarityBoost,
+              style: validatedSettings.style,
+              useSpeakerBoost: validatedSettings.useSpeakerBoost,
             },
           });
 
           // Convert ReadableStream to buffer
           const chunks: Uint8Array[] = [];
-          const nodeStream = Readable.fromWeb(audioResponse as any);
-          for await (const chunk of nodeStream) {
-            chunks.push(chunk);
+          try {
+            const nodeStream = Readable.fromWeb(audioResponse as any);
+            for await (const chunk of nodeStream) {
+              chunks.push(chunk);
+            }
+            
+            if (chunks.length === 0) {
+              throw new TTSGenerationError(
+                'Direct SDK returned empty audio stream',
+                undefined,
+                {
+                  voiceId: validatedSettings.voiceId,
+                  textLength: sanitizedText.length,
+                }
+              );
+            }
+            
+            return Buffer.concat(chunks);
+          } catch (streamError) {
+            throw new TTSGenerationError(
+              `Failed to convert audio stream to buffer: ${streamError instanceof Error ? streamError.message : String(streamError)}`,
+              streamError as Error,
+              {
+                voiceId: validatedSettings.voiceId,
+                operation: 'stream-conversion',
+              }
+            );
           }
-          return Buffer.concat(chunks);
         } catch (sdkError) {
-          console.error('Direct ElevenLabs SDK also failed:', sdkError);
-          throw error; // Throw original error
+          const sdkAppError = toAppError(sdkError);
+          console.error('Direct ElevenLabs SDK also failed:', {
+            error: sdkAppError.message,
+            code: sdkAppError.code,
+            originalError: appError.message,
+          });
+          
+          // Wrap both errors
+          throw new TTSGenerationError(
+            `Both TTS service and direct SDK failed. TTS Service: ${appError.message}. SDK: ${sdkAppError.message}`,
+            error as Error,
+            {
+              voiceId: validatedSettings.voiceId,
+              ttsServiceError: appError.message,
+              sdkError: sdkAppError.message,
+              attempt,
+            }
+          );
         }
       }
-      throw error;
+      
+      // If no fallback available or fallback also failed, throw TTS error
+      throw new TTSGenerationError(
+        `TTS generation failed: ${appError.message}`,
+        error as Error,
+        {
+          voiceId: validatedSettings.voiceId,
+          textLength: sanitizedText.length,
+          attempt,
+          hasSDKFallback: !!this.client,
+        }
+      );
     }
   }
 
@@ -620,8 +1201,47 @@ export class VoiceAssistant {
       
       console.log(`✅ Saved preferences for user ${userId}:`, preferences);
     } catch (error) {
-      console.error('Failed to save user preferences:', error);
-      throw error;
+      const appError = toAppError(error);
+      
+      // Check if it's a cache/memory error - might be recoverable
+      if (appError instanceof CacheConnectionError || appError instanceof CacheError) {
+        console.error('Failed to save user preferences due to cache/memory error:', {
+          userId,
+          error: appError.message,
+          code: appError.code,
+          preferences: Object.keys(preferences),
+        });
+        throw new CacheError(
+          'Failed to save user preferences: cache/memory unavailable',
+          error as Error,
+          {
+            userId,
+            operation: 'save-preferences',
+            preferences: Object.keys(preferences),
+          }
+        );
+      }
+      
+      console.error('Failed to save user preferences:', {
+        userId,
+        error: appError.message,
+        code: appError.code,
+        details: appError.details,
+      });
+      
+      if (isAppError(error)) {
+        throw error;
+      }
+      
+      throw new VoiceServiceError(
+        `Failed to save user preferences: ${appError.message}`,
+        error as Error,
+        {
+          userId,
+          preferences: Object.keys(preferences),
+          operation: 'save-preferences',
+        }
+      );
     }
   }
 
@@ -844,63 +1464,158 @@ export class VoiceAssistant {
     responseStream: { write: (chunk: any) => boolean; end: () => void; destroyed?: boolean; writable?: boolean }
   ): Promise<void> {
     try {
-      if (!this.client) {
-        throw new Error('ElevenLabs client not initialized');
+      // Validate inputs
+      if (!text || typeof text !== 'string' || text.trim().length === 0) {
+        throw new ValidationError('Invalid text for streaming: must be a non-empty string', {
+          field: 'text',
+          operation: 'stream-audio',
+        });
       }
 
-      // Get voice settings
-      const voiceSettings: VoiceSettings = {
+      if (!responseStream || typeof responseStream.write !== 'function' || typeof responseStream.end !== 'function') {
+        throw new ValidationError('Invalid response stream: must have write() and end() methods', {
+          field: 'responseStream',
+          operation: 'stream-audio',
+        });
+      }
+
+      if (!this.client) {
+        throw new ServiceUnavailableError(
+          'ElevenLabs',
+          'ElevenLabs client not initialized. Voice streaming unavailable.'
+        );
+      }
+
+      if (!this.apiKey) {
+        throw new ServiceUnavailableError(
+          'ElevenLabs',
+          'ElevenLabs API key not configured. Voice streaming unavailable.'
+        );
+      }
+
+      // Validate and sanitize text
+      const sanitizedText = this.sanitizeText(text).substring(0, this.MAX_TEXT_LENGTH);
+      
+      // Get voice settings (with validation)
+      const voiceSettings = this.validateVoiceSettings({
         voiceId: voiceId || this.DEFAULT_VOICE_ID,
         modelId: this.DEFAULT_MODEL,
         stability: 0.5,
         similarityBoost: 0.8,
         style: 0.5,
         useSpeakerBoost: true,
-      };
-
-      // Use ElevenLabs streaming API
-      const audioStream = await this.client.textToSpeech.convert(voiceSettings.voiceId, {
-        text: text,
-        modelId: voiceSettings.modelId,
-        voiceSettings: {
-          stability: voiceSettings.stability,
-          similarityBoost: voiceSettings.similarityBoost,
-          style: voiceSettings.style,
-          useSpeakerBoost: voiceSettings.useSpeakerBoost,
-        },
       });
 
-      // Convert ReadableStream to Node.js stream and pipe to response
-      const nodeStream = Readable.fromWeb(audioStream as any);
-      for await (const chunk of nodeStream) {
-        // Check if stream is still writable (handle both Express Response and generic streams)
-        const isWritable = responseStream.writable !== false && 
-                          (responseStream.destroyed === undefined || !responseStream.destroyed);
-        
-        if (!isWritable) {
-          break;
-        }
-        
-        try {
-          responseStream.write(chunk);
-        } catch (writeError) {
-          console.warn('Error writing chunk to stream:', writeError);
-          break;
-        }
+      // Use ElevenLabs streaming API
+      let audioStream: ReadableStream<Uint8Array>;
+      try {
+        audioStream = await this.client.textToSpeech.convert(voiceSettings.voiceId, {
+          text: sanitizedText,
+          modelId: voiceSettings.modelId,
+          voiceSettings: {
+            stability: voiceSettings.stability,
+            similarityBoost: voiceSettings.similarityBoost,
+            style: voiceSettings.style,
+            useSpeakerBoost: voiceSettings.useSpeakerBoost,
+          },
+        });
+      } catch (error) {
+        throw new TTSGenerationError(
+          `Failed to initiate audio stream from ElevenLabs: ${error instanceof Error ? error.message : String(error)}`,
+          error as Error,
+          {
+            voiceId: voiceSettings.voiceId,
+            textLength: sanitizedText.length,
+            operation: 'stream-init',
+          }
+        );
       }
 
-      responseStream.end();
+      // Convert ReadableStream to Node.js stream and pipe to response
+      try {
+        const nodeStream = Readable.fromWeb(audioStream as any);
+        let bytesStreamed = 0;
+        
+        for await (const chunk of nodeStream) {
+          // Check if stream is still writable (handle both Express Response and generic streams)
+          const isWritable = responseStream.writable !== false && 
+                            (responseStream.destroyed === undefined || !responseStream.destroyed);
+          
+          if (!isWritable) {
+            console.warn('Response stream is no longer writable, stopping audio stream');
+            break;
+          }
+          
+          try {
+            const writeSuccess = responseStream.write(chunk);
+            if (!writeSuccess) {
+              // Backpressure - wait for drain event would be ideal, but for simplicity we continue
+              console.warn('Stream backpressure detected');
+            }
+            bytesStreamed += chunk.length || 0;
+          } catch (writeError) {
+            const appError = toAppError(writeError);
+            console.warn('Error writing chunk to stream:', {
+              error: appError.message,
+              bytesStreamed,
+            });
+            break;
+          }
+        }
+
+        // Successfully completed streaming
+        responseStream.end();
+        console.log(`✅ Audio streamed successfully: ${bytesStreamed} bytes`);
+      } catch (streamError) {
+        const appError = toAppError(streamError);
+        throw new TTSGenerationError(
+          `Failed to stream audio chunks: ${appError.message}`,
+          streamError as Error,
+          {
+            voiceId: voiceSettings.voiceId,
+            operation: 'stream-write',
+          }
+        );
+      }
     } catch (error) {
-      console.error('Stream audio error:', error);
+      const appError = isAppError(error) ? error : toAppError(error);
+      
+      console.error('Stream audio error:', {
+        error: appError.message,
+        code: appError.code,
+        statusCode: appError.statusCode,
+        details: appError.details,
+      });
+      
       // Try to close the stream if there's an error
       try {
-        if (typeof responseStream.end === 'function') {
+        if (typeof responseStream.end === 'function' && 
+            responseStream.destroyed !== true &&
+            responseStream.writable !== false) {
           responseStream.end();
         }
-      } catch {
-        // Ignore errors when closing stream
+      } catch (closeError) {
+        // Ignore errors when closing stream - already in error state
+        console.warn('Error closing stream after error:', {
+          closeError: closeError instanceof Error ? closeError.message : String(closeError),
+          originalError: appError.message,
+        });
       }
-      throw error;
+      
+      // Re-throw as appropriate error type
+      if (isAppError(error)) {
+        throw error;
+      }
+      
+      throw new VoiceServiceError(
+        `Failed to stream audio: ${appError.message}`,
+        error as Error,
+        {
+          voiceId,
+          textLength: typeof text === 'string' ? text.length : 0,
+          operation: 'stream-audio',
+        }
+      );
     }
   }
 
@@ -958,6 +1673,159 @@ export class VoiceAssistant {
    */
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Data validation and sanitization utilities
+   */
+  
+  /**
+   * Sanitize and validate user input text
+   */
+  private sanitizeText(text: string): string {
+    if (!text || typeof text !== 'string') {
+      throw new Error('Invalid text input: must be a non-empty string');
+    }
+    
+    // Trim whitespace
+    let sanitized = text.trim();
+    
+    // Check length
+    if (sanitized.length === 0) {
+      throw new Error('Text input cannot be empty');
+    }
+    
+    const MAX_TEXT_LENGTH = 5000;
+    if (sanitized.length > MAX_TEXT_LENGTH) {
+      console.warn(`Text input truncated from ${sanitized.length} to ${MAX_TEXT_LENGTH} characters`);
+      sanitized = sanitized.substring(0, MAX_TEXT_LENGTH);
+    }
+    
+    // Remove control characters but preserve newlines and tabs
+    sanitized = sanitized.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '');
+    
+    return sanitized;
+  }
+
+  /**
+   * Clamp number between min and max
+   */
+  private clamp(value: number, min: number, max: number): number {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  /**
+   * Validate and normalize voice settings
+   */
+  private validateVoiceSettings(settings: Partial<VoiceSettings>): VoiceSettings {
+    const validated: VoiceSettings = {
+      voiceId: settings.voiceId || this.DEFAULT_VOICE_ID,
+      modelId: settings.modelId || this.DEFAULT_MODEL,
+      stability: this.clamp(settings.stability ?? 0.5, 0, 1),
+      similarityBoost: this.clamp(settings.similarityBoost ?? 0.8, 0, 1),
+      style: settings.style !== undefined ? this.clamp(settings.style, 0, 1) : 0.5,
+      useSpeakerBoost: settings.useSpeakerBoost ?? true,
+    };
+    
+    // Validate voice ID
+    if (!this.VALID_VOICE_IDS.includes(validated.voiceId)) {
+      console.warn(`Invalid voice ID ${validated.voiceId}, using default`);
+      validated.voiceId = this.DEFAULT_VOICE_ID;
+    }
+    
+    return validated;
+  }
+
+  /**
+   * Validate and normalize user preferences
+   */
+  private validateAndNormalizePreferences(
+    preferences: Partial<UserVoicePreferences>
+  ): Partial<UserVoicePreferences> {
+    const validated: Partial<UserVoicePreferences> = {};
+    const MAX_PREFERENCE_ITEMS = 100;
+    
+    // Validate voice preference
+    if (preferences.voicePreference) {
+      if (typeof preferences.voicePreference === 'string' && this.VALID_VOICE_IDS.includes(preferences.voicePreference)) {
+        validated.voicePreference = preferences.voicePreference;
+      } else {
+        console.warn(`Invalid voice preference: ${preferences.voicePreference}`);
+      }
+    }
+    
+    // Validate and normalize size preferences
+    if (preferences.sizePreferences && typeof preferences.sizePreferences === 'object') {
+      const normalizedSizes: Record<string, string> = {};
+      for (const [brand, size] of Object.entries(preferences.sizePreferences)) {
+        if (typeof size === 'string' && size.trim()) {
+          normalizedSizes[brand] = size.trim().toUpperCase();
+        }
+      }
+      if (Object.keys(normalizedSizes).length > 0) {
+        validated.sizePreferences = normalizedSizes;
+      }
+    }
+    
+    // Validate and normalize color preferences
+    if (preferences.colorPreferences && Array.isArray(preferences.colorPreferences)) {
+      const normalizedColors = preferences.colorPreferences
+        .filter((color): color is string => typeof color === 'string' && color.trim().length > 0)
+        .map(color => color.trim().toLowerCase())
+        .filter((color, index, arr) => arr.indexOf(color) === index) // Remove duplicates
+        .slice(0, MAX_PREFERENCE_ITEMS);
+      
+      if (normalizedColors.length > 0) {
+        validated.colorPreferences = normalizedColors;
+      }
+    }
+    
+    // Validate and normalize style preferences
+    if (preferences.stylePreferences && Array.isArray(preferences.stylePreferences)) {
+      const normalizedStyles = preferences.stylePreferences
+        .filter((style): style is string => typeof style === 'string' && style.trim().length > 0)
+        .map(style => style.trim().toLowerCase())
+        .filter((style, index, arr) => arr.indexOf(style) === index) // Remove duplicates
+        .slice(0, MAX_PREFERENCE_ITEMS);
+      
+      if (normalizedStyles.length > 0) {
+        validated.stylePreferences = normalizedStyles;
+      }
+    }
+    
+    // Validate and normalize brand preferences
+    if (preferences.brandPreferences && Array.isArray(preferences.brandPreferences)) {
+      const normalizedBrands = preferences.brandPreferences
+        .filter((brand): brand is string => typeof brand === 'string' && brand.trim().length > 0)
+        .map(brand => brand.trim())
+        .filter((brand, index, arr) => arr.indexOf(brand) === index) // Remove duplicates
+        .slice(0, MAX_PREFERENCE_ITEMS);
+      
+      if (normalizedBrands.length > 0) {
+        validated.brandPreferences = normalizedBrands;
+      }
+    }
+    
+    return validated;
+  }
+
+  /**
+   * Validate conversation state
+   */
+  private validateConversationState(state: Partial<ConversationState>): ConversationState | null {
+    if (!state || !state.conversationId || !state.userId) {
+      return null;
+    }
+    
+    return {
+      conversationId: String(state.conversationId),
+      userId: String(state.userId),
+      context: state.context || {},
+      lastMessage: state.lastMessage ? this.sanitizeText(state.lastMessage) : undefined,
+      lastResponse: state.lastResponse ? this.sanitizeText(state.lastResponse) : undefined,
+      voiceSettings: state.voiceSettings ? this.validateVoiceSettings(state.voiceSettings) : undefined,
+      preferences: state.preferences ? this.validateAndNormalizePreferences(state.preferences) as UserVoicePreferences : undefined,
+    };
   }
 }
 
