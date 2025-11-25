@@ -105,7 +105,7 @@ class SmartBucketsClient {
   async upload(path: string, file: Blob | Buffer | ArrayBuffer, metadata?: Record<string, any>): Promise<string> {
     // Implementation: Upload product images with metadata
     const formData = new FormData();
-    const blob = file instanceof Blob ? file : new Blob([file]);
+    const blob = file instanceof Blob ? file : new Blob([new Uint8Array(file as ArrayBuffer)]);
     formData.append('file', blob);
     if (metadata) {
       formData.append('metadata', JSON.stringify(metadata));
