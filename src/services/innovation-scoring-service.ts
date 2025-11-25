@@ -3,7 +3,7 @@ import type { InnovationScore } from '@/lib/idea-quality/types';
 export class InnovationScoringService {
   calculateInnovationScore(): InnovationScore {
     const technicalNovelty = this.scoreTechnicalInnovation();
-    const businessModelNovelty = this.scoreBusinessModelInnovation();
+    const businessModelNovelty = this.scoreBusinessModelNovelty();
     const marketTiming = this.scoreMarketTiming();
     const defensibility = this.scoreDefensibility();
     const scalability = this.scoreScalability();
