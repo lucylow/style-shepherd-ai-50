@@ -1,7 +1,1 @@
-project_id = "xpctsetkdwaigfvqgvpm"
-
-[functions.fashion-assistant]
-verify_jwt = false
-
-[functions.style-recommendations]
-verify_jwt = false
+project_id = "tnbyrkmvoqarmlnvbvfd"
