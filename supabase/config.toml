@@ -1,1 +1,13 @@
 project_id = "tnbyrkmvoqarmlnvbvfd"
+
+[functions.vultr-inference]
+verify_jwt = false
+
+[functions.elevenlabs-tts]
+verify_jwt = false
+
+[functions.fashion-assistant]
+verify_jwt = false
+
+[functions.style-recommendations]
+verify_jwt = false

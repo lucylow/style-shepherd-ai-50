@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Search, Filter, Grid3X3, ShoppingBag, Sparkles, Home, Heart, GitCompare } from 'lucide-react';
+import { Search, Filter, Grid3X3, ShoppingBag, Sparkles, Home, Heart, GitCompare, Bot } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ProductCard } from '@/components/ProductCard';
 import { VoiceInterface } from '@/components/VoiceInterface';
@@ -51,55 +51,6 @@ const Dashboard = () => {
     loadInitialData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    searchProducts();
-  }, [searchProducts]);
-
-  useEffect(() => {
-    applyFiltersToProducts(allProducts);
-  }, [filters, allProducts, applyFiltersToProducts]);
-
-  const loadInitialData = async () => {
-    setIsLoading(true);
-    try {
-      const [productsData, recsData, cartData] = await Promise.all([
-        mockProductService.searchProducts({}),
-        userId !== 'guest' ? mockProductService.getRecommendations(userId) : Promise.resolve([]),
-        userId !== 'guest' ? mockCartService.getCart(userId) : Promise.resolve([])
-      ]);
-      setAllProducts(productsData);
-      setProducts(productsData);
-      setRecommendations(recsData);
-      setCartItems(cartData);
-      
-      // Load wishlist from localStorage
-      const savedWishlist = localStorage.getItem(`wishlist_${userId}`);
-      if (savedWishlist) {
-        setWishlistItems(JSON.parse(savedWishlist));
-      }
-      
-      // Load recent searches
-      const savedSearches = localStorage.getItem(`recent_searches_${userId}`);
-      if (savedSearches) {
-        setRecentSearches(JSON.parse(savedSearches));
-      }
-      
-      // Calculate price range
-      if (productsData.length > 0) {
-        const prices = productsData.map(p => p.price);
-        setFilters(prev => ({
-          ...prev,
-          minPrice: Math.floor(Math.min(...prices)),
-          maxPrice: Math.ceil(Math.max(...prices)),
-        }));
-      }
-    } catch (error) {
-      console.error('Error loading data:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const applyFiltersToProducts = useCallback((productsToFilter: Product[]) => {
     let filtered = [...productsToFilter];
@@ -163,6 +114,56 @@ const Dashboard = () => {
     }
   }, [searchQuery, recentSearches, userId, applyFiltersToProducts]);
 
+  useEffect(() => {
+    searchProducts();
+  }, [searchProducts]);
+
+  useEffect(() => {
+    applyFiltersToProducts(allProducts);
+  }, [filters, allProducts, applyFiltersToProducts]);
+
+  const loadInitialData = async () => {
+    setIsLoading(true);
+    try {
+      const [productsData, recsData, cartData] = await Promise.all([
+        mockProductService.searchProducts({}),
+        userId !== 'guest' ? mockProductService.getRecommendations(userId) : Promise.resolve([]),
+        userId !== 'guest' ? mockCartService.getCart(userId) : Promise.resolve([])
+      ]);
+      setAllProducts(productsData);
+      setProducts(productsData);
+      setRecommendations(recsData);
+      setCartItems(cartData);
+      
+      // Load wishlist from localStorage
+      const savedWishlist = localStorage.getItem(`wishlist_${userId}`);
+      if (savedWishlist) {
+        setWishlistItems(JSON.parse(savedWishlist));
+      }
+      
+      // Load recent searches
+      const savedSearches = localStorage.getItem(`recent_searches_${userId}`);
+      if (savedSearches) {
+        setRecentSearches(JSON.parse(savedSearches));
+      }
+      
+      // Calculate price range
+      if (productsData.length > 0) {
+        const prices = productsData.map(p => p.price);
+        setFilters(prev => ({
+          ...prev,
+          minPrice: Math.floor(Math.min(...prices)),
+          maxPrice: Math.ceil(Math.max(...prices)),
+        }));
+      }
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+
   const handleVoiceCommand = useCallback(async (response: VoiceResponse) => {
     if (response.products && response.products.length > 0) {
       setProducts(response.products);
@@ -208,10 +209,13 @@ const Dashboard = () => {
         ));
       }
     } else {
-      const updatedCart = await mockCartService.updateQuantity(userId, productId, quantity);
+      // Find the item to get its size
+      const item = cartItems.find(i => i.product.id === productId);
+      const size = item?.size || item?.selectedSize || '';
+      const updatedCart = await mockCartService.updateQuantity(userId, productId, size, quantity);
       setCartItems(updatedCart);
     }
-  }, [userId]);
+  }, [userId, cartItems]);
 
   const handleRemoveItem = useCallback(async (productId: string) => {
     if (userId === 'guest') {

@@ -109,9 +109,6 @@ export function transformProduct(backendProduct: BackendProduct): Product {
     if (backendProduct.return_risk_score !== undefined) {
       return backendProduct.return_risk_score;
     }
-    if (backendProduct.returnRiskScore !== undefined) {
-      return backendProduct.returnRiskScore;
-    }
     // Legacy: convert old return_risk (0-1) to score (0-100)
     if (typeof backendProduct.return_risk === 'number') {
       return Math.round(backendProduct.return_risk * 100);
@@ -149,17 +146,13 @@ export function transformProduct(backendProduct: BackendProduct): Product {
     return 'unknown';
   };
 
-  // Get size confidence (new: size_confidence, fallback: confidence * 100)
+  // Get size confidence (new: size_confidence, fallback: sizeConfidence)
   const getSizeConfidence = (): number | undefined => {
     if (backendProduct.size_confidence !== undefined) {
       return backendProduct.size_confidence;
     }
     if (backendProduct.sizeConfidence !== undefined) {
       return backendProduct.sizeConfidence;
-    }
-    // Legacy: convert confidence (0-1) to sizeConfidence (0-100)
-    if (backendProduct.confidence !== undefined) {
-      return Math.round(backendProduct.confidence * 100);
     }
     return undefined;
   };
