@@ -162,12 +162,10 @@ export class JudgeSummaryExporter {
   /**
    * Download PDF summary (client-side)
    */
-  downloadPDF(pdfContent: PDFContent): void {
+  downloadPDF(assessment: OverallJudgingAssessment): void {
     // This would integrate with a PDF library like jsPDF or pdfkit
     // For now, we'll create a downloadable markdown/HTML version
-    const markdown = this.generateMarkdownSummary(
-      pdfContent as unknown as OverallJudgingAssessment,
-    );
+    const markdown = this.generateMarkdownSummary(assessment);
     const blob = new Blob([markdown], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

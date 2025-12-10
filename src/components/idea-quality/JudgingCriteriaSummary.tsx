@@ -13,8 +13,7 @@ export function JudgingCriteriaSummary({ assessment }: JudgingCriteriaSummaryPro
   const exporter = new JudgeSummaryExporter();
 
   const handleDownloadPDF = () => {
-    const pdfContent = exporter.generatePDFSummary(assessment);
-    exporter.downloadPDF(pdfContent as unknown as OverallJudgingAssessment);
+    exporter.downloadPDF(assessment);
   };
 
   const handleDownloadJSON = () => {

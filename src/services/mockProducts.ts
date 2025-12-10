@@ -249,7 +249,7 @@ class MockProductService {
         returnHistory: userProfile.returnHistory || []
       };
       
-      const recommendations = personalizationEngine.generatePersonalizedRecommendations(
+      const recommendations = await personalizationEngine.generatePersonalizedRecommendations(
         allProducts,
         aiUserProfile,
         { session_type: 'browsing' }
