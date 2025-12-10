@@ -1,0 +1,23 @@
+build:
+  framework: vite
+  node_version: 18
+  build_command: "npm run build"
+  output_dir: "dist"
+
+environment:
+  VITE_API_URL: ${VITE_API_URL}
+  VITE_DEMO_MODE: "true"
+
+cdn:
+  enabled: true
+
+mobile_manifest:
+  name: "Style Shepherd"
+  short_name: "Shepherd"
+  theme_color: "#36454F"
+  background_color: "#F7F9FB"
+
+notes:
+  - Vite + React + TypeScript + TailwindCSS application
+  - Backend server runs separately on port 3001
+  - Ensure public/assets contains demo images and assets

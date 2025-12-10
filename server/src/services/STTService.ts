@@ -6,7 +6,7 @@
 
 import OpenAI from 'openai';
 import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
-import FormData = require('form-data');
+import FormData from 'form-data';
 import env from '../config/env.js';
 
 export interface STTResult {
@@ -141,11 +141,11 @@ export class STTService {
       throw new Error(`OpenAI Whisper API error: ${response.status} ${errorText}`);
     }
 
-    const result = await response.json();
+    const result: any = await response.json();
     return {
-      text: result.text,
+      text: result.text || '',
       confidence: result.confidence || 0.9,
-      source: 'openai',
+      source: 'openai' as const,
       language: result.language || options?.language,
     };
   }

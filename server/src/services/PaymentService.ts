@@ -58,7 +58,7 @@ export class PaymentService {
   private readonly RETRY_DELAY = 1000; // 1 second
 
   constructor() {
-    this.stripe = new Stripe(env.STRIPE_SECRET_KEY, {
+    this.stripe = new Stripe(env.STRIPE_SECRET_KEY || 'sk_test_demo', {
       apiVersion: '2023-10-16',
       maxNetworkRetries: 2,
       timeout: 30000,
@@ -889,7 +889,7 @@ export class PaymentService {
       return {
         refundId: refund.id,
         amount: refund.amount / 100,
-        status: refund.status,
+        status: refund.status || 'pending',
       };
     } catch (error: any) {
       this.logPaymentOperation('createRefund', {

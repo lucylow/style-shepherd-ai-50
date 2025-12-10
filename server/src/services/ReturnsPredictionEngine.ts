@@ -28,6 +28,7 @@ export interface ReturnPredictionInput {
     isFirstOrder?: boolean;
     timeOfDay?: number;
     dayOfWeek?: number;
+    occasion?: string;
   };
 }
 

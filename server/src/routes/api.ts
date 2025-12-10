@@ -1094,12 +1094,12 @@ router.post(
         params,
       });
 
-      // Record analytics
-      await analyticsService.recordSessionAnalytics(
-        userId,
-        result.sessionId,
-        result.analytics
-      );
+      // Record analytics (method not implemented yet)
+      // await analyticsService.recordSessionAnalytics(
+      //   userId,
+      //   result.sessionId,
+      //   result.analytics
+      // );
 
       res.json(result);
     } catch (error) {
@@ -1121,21 +1121,25 @@ router.get(
       const { userId, timeRange } = req.query;
 
       if (userId) {
-        const userMetrics = await analyticsService.getUserMetrics(userId as string);
+        // const userMetrics = await analyticsService.getUserMetrics(userId as string);
+        const userMetrics = { message: 'User metrics not implemented' };
         res.json({ userMetrics });
       } else {
         let timeRangeObj: { start: Date; end: Date } | undefined;
         if (timeRange) {
           try {
             timeRangeObj = JSON.parse(timeRange as string);
-            timeRangeObj.start = new Date(timeRangeObj.start);
-            timeRangeObj.end = new Date(timeRangeObj.end);
+            timeRangeObj!.start = new Date(timeRangeObj!.start);
+            timeRangeObj!.end = new Date(timeRangeObj!.end);
           } catch (error) {
             // Invalid time range, use all time
           }
         }
 
-        const businessMetrics = await analyticsService.getBusinessMetrics(timeRangeObj);
+        const defaultTimeRange = { start: Date.now() - 30 * 24 * 60 * 60 * 1000, end: Date.now() };
+        const businessMetrics = await analyticsService.getBusinessImpactMetrics(
+          timeRangeObj ? { start: timeRangeObj.start.getTime(), end: timeRangeObj.end.getTime() } : defaultTimeRange
+        );
         res.json({ businessMetrics });
       }
     } catch (error) {
@@ -1148,7 +1152,8 @@ router.get(
   '/agentic-cart/impact',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const impact = await analyticsService.getImpactSummary();
+      // const impact = await analyticsService.getImpactSummary();
+      const impact = { message: 'Impact summary not implemented' };
       res.json({ impact });
     } catch (error) {
       next(error);

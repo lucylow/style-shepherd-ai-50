@@ -9,7 +9,7 @@ import { searchAgent, type SearchParams, type SearchResult } from './agents/Sear
 import { returnsAgent, type ReturnRiskPrediction } from './agents/ReturnsAgent.js';
 import { cartAgent, type CartBundle, type CartOptimizationParams } from './agents/CartAgent.js';
 import { promotionsAgent, type NegotiationResult, type NegotiationParams } from './agents/PromotionsAgent.js';
-import { AppError } from '../lib/errors.js';
+import { AppError, ErrorCode } from '../lib/errors.js';
 
 export interface UserGoal {
   intent: string;
@@ -74,8 +74,8 @@ export class RetailOrchestrator {
 
       if (searchResults.products.length === 0) {
         throw new AppError(
-          'NO_PRODUCTS_FOUND',
           'No products found matching your criteria',
+          ErrorCode.NO_PRODUCTS_FOUND,
           404
         );
       }

@@ -624,7 +624,7 @@ export class AnalyticsService {
     try {
       const key = `analytics:realtime:${category}:${metric}`;
       const current = (await vultrValkey.get<number>(key)) || 0;
-      await vultrValkey.set(key, current + value, 3600);
+      await vultrValkey.set(key, String(current + value), 3600);
     } catch (error) {
       // Non-critical
     }

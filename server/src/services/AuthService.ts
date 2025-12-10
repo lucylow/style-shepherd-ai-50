@@ -36,7 +36,7 @@ export class AuthService {
     return this.workos.userManagement.getAuthorizationUrl({
       provider: 'authkit',
       redirectUri,
-      clientId: env.WORKOS_CLIENT_ID,
+      clientId: env.WORKOS_CLIENT_ID || '',
       state: state || this.generateState(),
     });
   }
@@ -53,7 +53,7 @@ export class AuthService {
       // Exchange code for user profile
       const { user, accessToken } = await this.workos.userManagement.authenticateWithCode({
         code,
-        clientId: env.WORKOS_CLIENT_ID,
+        clientId: env.WORKOS_CLIENT_ID || '',
       });
 
       if (!user || !user.id) {
